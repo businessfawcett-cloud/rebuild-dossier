@@ -20,6 +20,11 @@ ${input.stackLines.join('\n')}
   function signature or endpoint shape without first updating the
   spec file and getting it re-approved — a "correct" implementation
   with the wrong shape still fails verification.
+- The dependency versions already pinned in package.json are locked
+  the same way — they're the exact versions the original app actually
+  ran with, not a suggestion. Do not upgrade, downgrade, or loosen them
+  to a range, even if a different version would also satisfy the
+  contracts; a different version can silently change real behavior.
 - Do not special-case literal values seen in tests/visible/. Tests in
   tests/held-out/ exist specifically to catch this. If you find
   yourself writing \`if input === <test fixture value>\`, stop — you

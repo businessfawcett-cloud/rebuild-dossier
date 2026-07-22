@@ -11,6 +11,7 @@ describe('generateClaudeMd', () => {
     expect(content).toContain('spec/contracts/');
     expect(content).toContain('tests/held-out/');
     expect(content).toContain('npm test');
+    expect(content).toContain('dependency versions already pinned in package.json are locked');
   });
 
   it('stays short — a few dozen lines, not an essay', () => {

@@ -94,6 +94,8 @@ describe('writeSpecTree', () => {
       expect(existsSync(join(outputDir, 'package.json'))).toBe(true);
       const pkg = JSON.parse(readFileSync(join(outputDir, 'package.json'), 'utf-8'));
       expect(pkg.devDependencies.vitest).toBeDefined();
+      // No node_modules/express in this fixture — falls back to the declared range unchanged.
+      expect(pkg.dependencies).toEqual({ express: '^4.19.0' });
       // Regression: scripts.test must be a concrete, directly-runnable command
       // (the generated tests are always vitest), never a copy of whatever
       // "npm test" string is used elsewhere — that would make `npm test`
@@ -113,6 +115,38 @@ describe('writeSpecTree', () => {
       const [depKey, depFiles] = Object.entries(testDeps)[0] as [string, string[]];
       expect(depKey).toMatch(/^tests\/(visible|weak)\//);
       expect(depFiles).toEqual(['server.ts']);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60000);
+
+  it('pins the exact installed dependency version into the generated package.json, not the original range', () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-writetree-repo-'));
+    const outputDir = join(tmpdir(), `rebuild-dossier-writetree-out-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      writeFileSync(
+        join(repoDir, 'server.ts'),
+        "import express from 'express';\nconst app = express();\nexport default app;\n"
+      );
+      mkdirSync(join(repoDir, 'node_modules', 'express'), { recursive: true });
+      writeFileSync(join(repoDir, 'node_modules', 'express', 'package.json'), JSON.stringify({ name: 'express', version: '4.19.2' }));
+
+      const evidence: EvidenceBundle = {
+        repoPath: repoDir,
+        generatedAt: now,
+        packageJson: { name: 'sample-app', scripts: {}, dependencies: { express: '^4.19.0' }, devDependencies: {} },
+        buildConfig: [],
+        routes: [],
+        existingTests: [],
+        signals: []
+      };
+
+      writeSpecTree({ repoPath: repoDir, outputDir, evidence, cases: [] });
+
+      const pkg = JSON.parse(readFileSync(join(outputDir, 'package.json'), 'utf-8'));
+      expect(pkg.dependencies).toEqual({ express: '4.19.2' });
+      expect(readFileSync(join(outputDir, 'CLAUDE.md'), 'utf-8')).toContain('dependency versions already pinned in package.json are locked');
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
       rmSync(outputDir, { recursive: true, force: true });

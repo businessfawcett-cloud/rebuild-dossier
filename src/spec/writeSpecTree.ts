@@ -11,6 +11,7 @@ import { generateNextApiTests } from './generateNextApiTests.js';
 import { generateGateTests, generateSecretEntryTests } from './generateGateTests.js';
 import { computeUntestedContractFiles } from './computeUntestedContractFiles.js';
 import { generateTestDependencies, type TestPlacement } from './generateTestDependencies.js';
+import { pinDependencyVersions } from './pinDependencyVersions.js';
 import { generateSpecAuditorAgent, generateTestVerifierAgent } from './generateAgents.js';
 import { generateParallelTestFixWorkflow } from './generateWorkflow.js';
 import { generateVerifyAgainstSpecSkill } from './generateSkill.js';
@@ -143,6 +144,8 @@ export function writeSpecTree(input: WriteSpecTreeInput): WriteSpecTreeResult {
   const untestedContractFiles = computeUntestedContractFiles(evidence.routes, testedSourceFiles);
   writeFileSync(join(outputDir, 'spec', 'untested-contracts.json'), JSON.stringify(untestedContractFiles, null, 2));
 
+  const pinnedDependencies = pinDependencyVersions(repoPath, evidence.packageJson.dependencies);
+
   writeFileSync(
     join(outputDir, 'package.json'),
     JSON.stringify(
@@ -151,6 +154,7 @@ export function writeSpecTree(input: WriteSpecTreeInput): WriteSpecTreeResult {
         private: true,
         type: 'module',
         scripts: { test: REBUILD_TEST_SCRIPT },
+        ...(Object.keys(pinnedDependencies).length > 0 ? { dependencies: pinnedDependencies } : {}),
         devDependencies: gateTests.length > 0 ? { vitest: '^4.0.0', playwright: '^1.61.1' } : { vitest: '^4.0.0' }
       },
       null,
