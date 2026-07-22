@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildCases } from '../../../src/reconciliation/buildCases.js';
@@ -219,6 +219,67 @@ describe('buildCases', () => {
       const cases = buildCases(dir);
 
       expect(cases).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('cross-references cases whose source files are near-content-duplicates of each other', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-buildcases-'));
+    try {
+      const gateShape = (variant: string) =>
+        `"use client";\nconst SECRET_NAME = "Madeline";\nexport function LoginGate${variant}() {\n  const handleSubmit = () => {\n    if (input.trim().toLowerCase() === SECRET_NAME.toLowerCase()) {\n      setUnlocked();\n    }\n  };\n  return <div className="flex min-h-screen items-center justify-center"><input onKeyDown={handleSubmit} /></div>;\n}\n`;
+
+      mkdirSync(join(dir, 'src', 'components'), { recursive: true });
+      writeFileSync(join(dir, 'src', 'components', 'login-gate.tsx'), gateShape(''));
+      writeFileSync(join(dir, 'src', 'components', 'login-gate-variant-a.tsx'), gateShape('A'));
+      writeFileSync(join(dir, 'src', 'components', 'unrelated.tsx'), 'export default function Unrelated() { return <main>Totally different content here</main>; }');
+
+      atomicWriteFile(
+        evidencePath(dir),
+        JSON.stringify(
+          minimalEvidence({
+            signals: [
+              {
+                id: 's1',
+                source: 'ingest',
+                locator: { file: 'src/components/login-gate.tsx', startLine: 5, endLine: 5 },
+                topicKey: 'smell:client-side-secret-gate:src/components/login-gate.tsx',
+                claim: 'possible client-side-only credential gate',
+                evidenceText: 'e',
+                detectedAt: now
+              },
+              {
+                id: 's2',
+                source: 'ingest',
+                locator: { file: 'src/components/login-gate-variant-a.tsx', startLine: 5, endLine: 5 },
+                topicKey: 'smell:client-side-secret-gate:src/components/login-gate-variant-a.tsx',
+                claim: 'possible client-side-only credential gate',
+                evidenceText: 'e',
+                detectedAt: now
+              },
+              {
+                id: 's3',
+                source: 'ingest',
+                locator: { file: 'src/components/unrelated.tsx', startLine: 1, endLine: 1 },
+                topicKey: 'smell:client-side-secret-gate:src/components/unrelated.tsx',
+                claim: 'possible client-side-only credential gate',
+                evidenceText: 'e',
+                detectedAt: now
+              }
+            ]
+          })
+        )
+      );
+
+      const cases = buildCases(dir);
+      const gateCase = cases.find((c) => c.topicKey.endsWith('login-gate.tsx'))!;
+      const variantCase = cases.find((c) => c.topicKey.endsWith('login-gate-variant-a.tsx'))!;
+      const unrelatedCase = cases.find((c) => c.topicKey.endsWith('unrelated.tsx'))!;
+
+      expect(gateCase.relatedCaseIds).toEqual([variantCase.id]);
+      expect(variantCase.relatedCaseIds).toEqual([gateCase.id]);
+      expect(unrelatedCase.relatedCaseIds).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

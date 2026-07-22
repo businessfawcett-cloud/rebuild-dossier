@@ -61,6 +61,29 @@ describe('get_case_queue tool', () => {
     }
   });
 
+  it('surfaces related near-duplicate cases in the elicitation message', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-queue-'));
+    try {
+      const kase: Case = { ...openCase('case:1'), relatedCaseIds: ['case:2', 'case:3'] };
+      saveCases(dir, [kase]);
+      const client = await connect({ elicitation: {} });
+
+      let capturedMessage = '';
+      client.setRequestHandler('elicitation/create', async (request) => {
+        capturedMessage = (request.params as { message: string }).message;
+        return { action: 'decline' as const };
+      });
+
+      await client.callTool({ name: 'get_case_queue', arguments: { repoPath: dir, interactive: true } });
+
+      expect(capturedMessage).toContain('near-duplicate');
+      expect(capturedMessage).toContain('case:2');
+      expect(capturedMessage).toContain('case:3');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('leaves a case open when the user declines during elicitation', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-queue-'));
     try {

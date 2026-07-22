@@ -30,9 +30,13 @@ const ELICITATION_SCHEMA = {
 
 async function walkCaseViaElicitation(repoPath: string, kase: Case, ctx: ServerContext): Promise<'resolved' | 'skipped' | 'stop'> {
   const conflictNote = kase.conflict ? `\nConflict: ${kase.conflict.detail}` : '';
+  const relatedNote =
+    kase.relatedCaseIds && kase.relatedCaseIds.length > 0
+      ? `\nNote: this case's source file is a near-duplicate of ${kase.relatedCaseIds.join(', ')} — your decision here may need to apply there too, not be decided independently.`
+      : '';
   const response = await ctx.mcpReq.elicitInput({
     mode: 'form',
-    message: `Case ${kase.id} (${kase.topicKey}) is unresolved.${conflictNote}\nWhat's the correct behavior?`,
+    message: `Case ${kase.id} (${kase.topicKey}) is unresolved.${conflictNote}${relatedNote}\nWhat's the correct behavior?`,
     requestedSchema: ELICITATION_SCHEMA
   });
 

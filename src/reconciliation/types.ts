@@ -84,6 +84,10 @@ export const caseSchema = z.object({
   status: caseStatusSchema,
   autoResolution: autoResolutionSchema.optional(),
   humanDecision: humanDecisionSchema.optional(),
-  conflict: conflictSchema.optional()
+  conflict: conflictSchema.optional(),
+  // Other cases whose source file is a near-content-duplicate of this one's —
+  // resolving this case may need to apply to those too. Populated by
+  // buildCases, not by classifyCase itself (it's cross-case, not per-case).
+  relatedCaseIds: z.array(z.string()).optional()
 });
 export type Case = z.infer<typeof caseSchema>;

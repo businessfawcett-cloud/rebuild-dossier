@@ -1,6 +1,9 @@
-import type { Case, KnownBug, Signal } from './types.js';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Case, KnownBug, Signal, Locator } from './types.js';
 import { classifyCase } from './classifyCase.js';
 import { matchKnownBug } from './matchKnownBug.js';
+import { findNearDuplicateGroups } from './nearDuplicateComponents.js';
 import { loadEvidenceBundle, loadCrawlEvidence } from '../state/evidenceStore.js';
 import { loadKnownBugs } from '../state/knownBugs.js';
 import { loadCases, saveCases } from '../state/caseStore.js';
@@ -46,6 +49,49 @@ function seedOrphanedKnownBugGroups(grouped: Map<string, Signal[]>, knownBugs: K
   }
 }
 
+function isCodeLocator(locator: Locator): locator is { file: string; startLine: number; endLine: number } {
+  return 'file' in locator;
+}
+
+function primaryFileFor(kase: Case): string | null {
+  const signal = kase.signals.find((s) => isCodeLocator(s.locator));
+  return signal && isCodeLocator(signal.locator) ? signal.locator.file : null;
+}
+
+// Cross-references cases whose source file is a near-content-duplicate of
+// another case's — see nearDuplicateComponents.ts for why this matters (three
+// gate variants in the real Madeline validation each got their own
+// disconnected case, and nothing signaled they might be the same decision).
+// Runs over every case's file, including already-resolved ones, since seeing
+// "this decision may apply to N similar files" is still useful context even
+// after a decision has been made.
+function attachNearDuplicateCrossReferences(repoPath: string, cases: Case[]): void {
+  const candidates: { path: string; content: string; caseId: string }[] = [];
+  for (const kase of cases) {
+    const file = primaryFileFor(kase);
+    if (!file) continue;
+    const fullPath = join(repoPath, file);
+    if (!existsSync(fullPath)) continue;
+    try {
+      candidates.push({ path: file, content: readFileSync(fullPath, 'utf-8'), caseId: kase.id });
+    } catch {
+      // unreadable — skip rather than fail the whole case-build over one file
+    }
+  }
+  if (candidates.length < 2) return;
+
+  const fileToCaseId = new Map(candidates.map((c) => [c.path, c.caseId]));
+  const groups = findNearDuplicateGroups(candidates.map(({ path, content }) => ({ path, content })));
+
+  const caseById = new Map(cases.map((c) => [c.id, c]));
+  for (const group of groups) {
+    const caseIds = group.map((file) => fileToCaseId.get(file)).filter((id): id is string => Boolean(id));
+    for (const caseId of caseIds) {
+      caseById.get(caseId)!.relatedCaseIds = caseIds.filter((id) => id !== caseId);
+    }
+  }
+}
+
 // Re-derives cases from current evidence + known bugs, but a case a human
 // already resolved is never silently overwritten by a fresh auto-classification
 // — re-running ingest_repo/crawl_site must not discard a decision someone made.
@@ -70,6 +116,8 @@ export function buildCases(repoPath: string): Case[] {
     }
     cases.push(classifyCase({ id, topicKey, signals, knownBugs }));
   }
+
+  attachNearDuplicateCrossReferences(repoPath, cases);
 
   saveCases(repoPath, cases);
   return cases;
