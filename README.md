@@ -296,13 +296,15 @@ tests, so its own correctness matters as much as any feature).
 v0 is scoped to prove the core loop, not to be feature-complete. Deliberately deferred, and
 tracked as real backlog rather than silently skipped:
 
+- A full fresh-agent handoff on a second, differently-shaped app (catchandtrade — Prisma/Postgres,
+  real API routes). The generator now produces real, mutation-verified tests for this shape;
+  whether a fresh agent actually converges against the resulting spec is still untested — the
+  actual generalization question, not yet answered.
 - Video/screen-recording ingestion and the video-LLM flagged-window review.
 - Original-CLAUDE.md / auto-memory as an evidence source.
 - Live Chrome MCP capture for auth-gated/multi-account flows a headless crawler can't reach.
 - Asset-manifest extraction (binary files copied byte-verbatim + a hash manifest, locked
   contract tier) — real design exists, not yet built.
-- A near-duplicate-component detector (two components implementing the same decision with no
-  cross-reference between their case-file entries — a real, observed gap, see the findings doc).
 - A mutator that no-ops a handler entirely (the current three — flip comparison, drop null
   check, off-by-one — can't produce a "this branch never ran" mutant).
 
