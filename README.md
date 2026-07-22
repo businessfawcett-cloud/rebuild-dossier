@@ -76,6 +76,121 @@ This writes a clean `some-app-rebuild/` sibling directory. `cd` into it, start a
 Claude Code session (nothing else should be in scope), and paste the contents of its
 `kickoff-prompt.txt`.
 
+## Operating guide
+
+The full lifecycle, in order — each step's actual behavior, not just the call signature.
+
+### 1. Ingest the repo
+
+```
+ingest_repo({ path: "/absolute/path/to/some-app" })
+```
+
+Static analysis only — no LLM call, nothing executed. Parses `package.json`, route files
+(Express and Next.js App Router today — see [scope](#current-scope-and-whats-deliberately-not-built-yet)),
+build config (Tailwind/Vite/Next, via AST, never executed), existing tests, and scans for
+comment/TODO signals plus structural smells (e.g. a hardcoded client-side credential check with
+no server-side verification — the kind of thing nobody ever comments on, which is exactly why
+it needs its own detector rather than relying on comments existing). Everything lands in
+`<repo>/.dossier/` — this tool's own scratch state, inside the *original* repo, never shared or
+uploaded anywhere. You'll get back a summary:
+
+```json
+{
+  "routes": 8,
+  "existingTests": 0,
+  "signals": 3,
+  "buildConfig": ["tailwind", "next"],
+  "openCases": 3,
+  "savedTo": "/absolute/path/to/some-app/.dossier/evidence.json"
+}
+```
+
+`openCases` here already reflects reconciliation — comment/TODO signals and structural smells
+that didn't auto-resolve become case-queue entries automatically.
+
+### 2. (Optional) Crawl the live site
+
+```
+crawl_site({ url: "http://localhost:3000", repoPath: "/absolute/path/to/some-app" })
+```
+
+Only useful if the app is actually running somewhere. Headless Playwright crawl of reachable
+routes, emitting progress notifications periodically — long crawls get auto-backgrounded by
+most MCP clients, and a silent multi-minute call risks being killed as unresponsive without them.
+
+### 3. (Optional, but do this before step 4) Flag anything you already know is broken
+
+```
+flag_known_bug({
+  repoPath: "/absolute/path/to/some-app",
+  description: "The login gate secret check runs entirely client-side and is bypassable"
+})
+```
+
+The cheapest, most authoritative signal in the whole system — a direct human statement always
+outranks inference. It overrides auto-resolve for anything it matches, *even if* every other
+signal quietly agrees the behavior looks intentional. Do this before resolving the queue, since
+it changes what shows up there (and can seed a case entirely on its own, with zero other
+evidence — see [docs/v0-findings.md](docs/v0-findings.md) for why that matters).
+
+### 4. Resolve the case queue
+
+```
+get_case_queue({ repoPath: "/absolute/path/to/some-app", interactive: true })
+```
+
+`interactive: true` walks each open case via MCP elicitation — a real interactive prompt in
+your client, showing the evidence side by side, if your client supports it. If not (or you're
+scripting this), resolve cases one at a time instead:
+
+```
+resolve_case({ repoPath: "/absolute/path/to/some-app", id: "case:...", decision: "intentional", note: "..." })
+```
+
+**This step doesn't have a shortcut.** `generate_spec` refuses to run while any case is still
+open, by design — there's no partial or in-progress spec to hand a rebuild agent with caveats;
+phases 1–2 are literally what produce `spec/` in the first place.
+
+### 5. Generate the spec
+
+```
+generate_spec({ repoPath: "/absolute/path/to/some-app" })
+```
+
+Only callable once the queue is empty. Writes `CLAUDE.md`, `.claude/` (rules, hooks, subagents,
+a workflow, a skill — all derived from *this* project's actual contracts and tests, not
+boilerplate), `spec/` (contracts, locked decisions, `test-dependencies.json`,
+`untested-contracts.json`), and `tests/` to a clean sibling `some-app-rebuild/` directory —
+never into the original repo. This step also runs a real mutation check: it deliberately breaks
+the original code (flips a comparison, drops a null check, off-by-ones a loop bound) in a
+scratch copy and confirms each generated test actually catches it — anything that doesn't gets
+moved to `tests/weak/` instead of shipped as if it were trustworthy. You'll get back:
+
+```json
+{
+  "outputDir": "/absolute/path/to/some-app-rebuild",
+  "mutationsChecked": 8,
+  "weakTests": []
+}
+```
+
+A non-empty `weakTests` isn't an error — it's the tool telling you honestly that a specific
+test didn't earn its place in `tests/visible/`.
+
+### 6. Hand it off
+
+```bash
+cd /absolute/path/to/some-app-rebuild
+claude   # or oh-my-pi, opencode — any coding agent, a genuinely fresh session
+```
+
+Paste the contents of `kickoff-prompt.txt` verbatim. Nothing else should be in that session's
+context — the directory is fully self-contained on purpose (see [How it works](#how-it-works)),
+so there's nothing else for a rebuild agent to read, drift toward, or edit in place instead of
+building cleanly. Read [docs/v0-findings.md](docs/v0-findings.md) for what actually happens
+when you do this against a real app, including exactly where it got stuck.
+
 ## Connecting from other tools (oh-my-pi, opencode, etc.)
 
 Two ways to run this, both entirely local — there is no hosted/shared instance, and none is
