@@ -1,0 +1,35 @@
+{
+  "name": "rebuild-dossier",
+  "version": "0.1.0",
+  "description": "MCP server that reverse-engineers a trustworthy rebuild spec from an existing app.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/businessfawcett-cloud/rebuild-dossier.git"
+  },
+  "bin": {
+    "rebuild-dossier": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0-beta.5",
+    "zod": "^4.1.13",
+    "playwright": "^1.61.1",
+    "ts-morph": "^28.0.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0-beta.5",
+    "@types/node": "^24.0.0",
+    "express": "^4.19.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

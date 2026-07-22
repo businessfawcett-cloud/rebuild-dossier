@@ -1,0 +1,12 @@
+{
+  "name": "sample-repo",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "express": "^4.19.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.0"
+  }
+}
