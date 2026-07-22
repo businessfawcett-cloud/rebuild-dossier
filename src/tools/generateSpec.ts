@@ -3,6 +3,7 @@ import { dirname, basename, join } from 'node:path';
 import { loadCases } from '../state/caseStore.js';
 import { loadEvidenceBundle } from '../state/evidenceStore.js';
 import { writeSpecTree } from '../spec/writeSpecTree.js';
+import { enforcePathAllowlist } from '../security/pathAllowlist.js';
 
 export const generateSpecInputSchema = z.object({
   repoPath: z.string().describe('Repo path that was ingested; output is written to a sibling <repoPath>-rebuild/ directory')
@@ -19,6 +20,13 @@ function siblingRebuildDir(repoPath: string): string {
 }
 
 export async function generateSpecHandler(args: z.infer<typeof generateSpecInputSchema>) {
+  enforcePathAllowlist(args.repoPath);
+  // The sibling <repo>-rebuild/ output dir is a write target in its own
+  // right, and — unlike ingest_repo's reads — isn't necessarily inside
+  // repoPath itself (it's a sibling, not a child), so an allowlist scoped to
+  // one exact repo rather than its parent directory wouldn't otherwise cover it.
+  enforcePathAllowlist(siblingRebuildDir(args.repoPath));
+
   const openCases = loadCases(args.repoPath).filter((c) => c.status === 'open');
   if (openCases.length > 0) {
     return {

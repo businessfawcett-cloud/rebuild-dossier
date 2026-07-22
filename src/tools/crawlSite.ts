@@ -5,6 +5,8 @@ import { createProgressReporter } from '../crawl/progressHeartbeat.js';
 import { crawlEvidencePath } from '../state/dossierPaths.js';
 import { atomicWriteFile } from '../state/atomicWrite.js';
 import { buildCases } from '../reconciliation/buildCases.js';
+import { enforcePathAllowlist } from '../security/pathAllowlist.js';
+import { enforceUrlAllowlist } from '../security/urlAllowlist.js';
 
 export const crawlSiteInputSchema = z.object({
   url: z.string().describe('Base URL to crawl'),
@@ -18,6 +20,8 @@ export const crawlSiteConfig = {
 };
 
 export async function crawlSiteHandler(args: z.infer<typeof crawlSiteInputSchema>, ctx: ServerContext) {
+  enforcePathAllowlist(args.repoPath);
+  await enforceUrlAllowlist(args.url);
   const evidence = await crawlSite(args.url, {
     maxPages: args.maxPages,
     onProgress: createProgressReporter(ctx),

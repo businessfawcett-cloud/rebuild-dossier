@@ -1,5 +1,6 @@
 import * as z from 'zod/v4';
 import { resolveCaseInternal } from '../reconciliation/resolveCase.js';
+import { enforcePathAllowlist } from '../security/pathAllowlist.js';
 
 export const resolveCaseInputSchema = z.object({
   repoPath: z.string().describe('Repo path whose .dossier/ this case belongs to'),
@@ -14,6 +15,7 @@ export const resolveCaseConfig = {
 };
 
 export async function resolveCaseHandler(args: z.infer<typeof resolveCaseInputSchema>) {
+  enforcePathAllowlist(args.repoPath);
   const resolved = resolveCaseInternal(args.repoPath, args.id, args.decision, args.note, 'resolve_case_tool');
 
   if (!resolved) {

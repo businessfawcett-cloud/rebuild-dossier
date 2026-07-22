@@ -76,6 +76,73 @@ This writes a clean `some-app-rebuild/` sibling directory. `cd` into it, start a
 Claude Code session (nothing else should be in scope), and paste the contents of its
 `kickoff-prompt.txt`.
 
+## Connecting from other tools (oh-my-pi, opencode, etc.)
+
+Two ways to run this, both entirely local — there is no hosted/shared instance, and none is
+required:
+
+**stdio (default)** — each tool spawns its own copy of the server as a local subprocess. This
+is the standard way every MCP client (Claude Code, [oh-my-pi](https://github.com/can1357/oh-my-pi),
+[opencode](https://opencode.ai)) adds a local MCP server — point it at `npx tsx src/index.ts`
+(or a built `node dist/index.js`) from this repo's directory. No extra setup, no auth, nothing
+in this section applies.
+
+**HTTP (optional)** — one persistent server on `localhost` that multiple tools/sessions
+connect to instead of each spawning their own. Useful if you want oh-my-pi and opencode (or
+several Claude Code sessions) sharing one running instance. Still fully local — `MCP_ALLOWED_HOSTS`
+only needs to include the hostname you'll actually connect to (`localhost`), not a real domain,
+unless you deliberately choose to expose this beyond your own machine.
+
+```bash
+npm run build
+PORT=8080 \
+MCP_AUTH_TOKEN=$(openssl rand -hex 32) \
+MCP_ALLOWED_HOSTS=localhost,127.0.0.1 \
+REBUILD_DOSSIER_ALLOWED_PATHS=/absolute/path/to/your/projects \
+npm run start:http:prod
+```
+
+All three env vars are required — the server refuses to start without them, on purpose:
+`MCP_AUTH_TOKEN` gates every `/mcp` request (bearer auth), `MCP_ALLOWED_HOSTS` guards against
+DNS-rebinding, and `REBUILD_DOSSIER_ALLOWED_PATHS` (comma-separated absolute directories) is
+the only paths `ingest_repo`/`generate_spec`/etc. are allowed to touch — set it to whatever
+parent directory holds the repos you actually want to rebuild.
+
+**oh-my-pi** (`.omp/mcp.json` or `~/.omp/agent/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "rebuild-dossier": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer ${REBUILD_DOSSIER_TOKEN}" }
+    }
+  }
+}
+```
+
+**opencode** (`opencode.json`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "rebuild-dossier": {
+      "type": "remote",
+      "url": "http://localhost:8080/mcp",
+      "enabled": true,
+      "oauth": false,
+      "headers": { "Authorization": "Bearer {env:REBUILD_DOSSIER_TOKEN}" }
+    }
+  }
+}
+```
+
+`oauth: false` disables opencode's automatic OAuth discovery on a `401` — this server only
+supports the static bearer token above, not a real OAuth flow. Set the referenced env var
+(`REBUILD_DOSSIER_TOKEN` in both examples) to the same value as `MCP_AUTH_TOKEN` above.
+
 ## Development
 
 ```bash

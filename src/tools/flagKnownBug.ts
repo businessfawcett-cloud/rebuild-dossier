@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 import { addKnownBug } from '../state/knownBugs.js';
 import { buildCases } from '../reconciliation/buildCases.js';
+import { enforcePathAllowlist } from '../security/pathAllowlist.js';
 
 export const flagKnownBugInputSchema = z.object({
   repoPath: z.string().describe('Repo path whose .dossier/ this known bug belongs to'),
@@ -14,6 +15,7 @@ export const flagKnownBugConfig = {
 };
 
 export async function flagKnownBugHandler(args: z.infer<typeof flagKnownBugInputSchema>) {
+  enforcePathAllowlist(args.repoPath);
   const bug = addKnownBug(args.repoPath, args.description);
   // Recompute cases immediately so this override takes effect right away,
   // rather than waiting for the next unrelated ingest/crawl call.

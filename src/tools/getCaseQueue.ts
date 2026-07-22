@@ -3,6 +3,7 @@ import type { ServerContext } from '@modelcontextprotocol/server';
 import { loadCases } from '../state/caseStore.js';
 import { resolveCaseInternal } from '../reconciliation/resolveCase.js';
 import type { Case } from '../reconciliation/types.js';
+import { enforcePathAllowlist } from '../security/pathAllowlist.js';
 
 
 export const getCaseQueueInputSchema = z.object({
@@ -49,6 +50,7 @@ async function walkCaseViaElicitation(repoPath: string, kase: Case, ctx: ServerC
 }
 
 export async function getCaseQueueHandler(args: z.infer<typeof getCaseQueueInputSchema>, ctx: ServerContext) {
+  enforcePathAllowlist(args.repoPath);
   let open = loadCases(args.repoPath).filter((c) => c.status === 'open');
 
   if (args.interactive) {
