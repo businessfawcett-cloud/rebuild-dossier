@@ -119,6 +119,63 @@ describe('writeSpecTree', () => {
     }
   }, 60000);
 
+  it('generates a Next.js API route test (no Express app anywhere) and wires it into contract coverage', () => {
+    // Deliberately does not assert on real mutation-check execution here — a
+    // generated test importing 'next/server' needs a real `next` install to
+    // run at all, which this fast fixture doesn't have (same reason the gate-
+    // test integration test below only checks static content, not a live
+    // `next dev` run). Real execution against a genuinely running Next.js app
+    // is covered by the actual validation run against a real target repo.
+    const repoDir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-writetree-repo-'));
+    const outputDir = join(tmpdir(), `rebuild-dossier-writetree-out-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      mkdirSync(join(repoDir, 'src', 'app', 'api', 'health'), { recursive: true });
+      writeFileSync(
+        join(repoDir, 'src', 'app', 'api', 'health', 'route.ts'),
+        [
+          "import { NextResponse } from 'next/server';",
+          '',
+          'export async function GET() {',
+          "  return NextResponse.json({ status: 'ok' });",
+          '}'
+        ].join('\n')
+      );
+
+      const evidence: EvidenceBundle = {
+        repoPath: repoDir,
+        generatedAt: now,
+        packageJson: { name: 'next-app', scripts: {}, dependencies: { next: '^14.2.35' }, devDependencies: {} },
+        buildConfig: [],
+        routes: [{ path: '/api/health', method: 'GET', file: 'src/app/api/health/route.ts', kind: 'api', startLine: 3 }],
+        existingTests: [],
+        signals: []
+      };
+
+      writeSpecTree({ repoPath: repoDir, outputDir, evidence, cases: [] });
+
+      const visibleFiles = readdirSync(join(outputDir, 'tests', 'visible'));
+      const heldOutFiles = existsSync(join(outputDir, 'tests', 'held-out')) ? readdirSync(join(outputDir, 'tests', 'held-out')) : [];
+      const weakFiles = existsSync(join(outputDir, 'tests', 'weak')) ? readdirSync(join(outputDir, 'tests', 'weak')) : [];
+      const allGenerated = [...visibleFiles, ...heldOutFiles, ...weakFiles];
+      expect(allGenerated).toHaveLength(1);
+
+      const generatedTestPath = join(
+        outputDir,
+        'tests',
+        visibleFiles[0] ? 'visible' : heldOutFiles[0] ? 'held-out' : 'weak',
+        allGenerated[0]!
+      );
+      expect(readFileSync(generatedTestPath, 'utf-8')).toContain("from 'next/server'");
+
+      // The generated test — wherever it landed (visible/held-out/weak) —
+      // still counts as coverage for the untested-contracts hook.
+      expect(JSON.parse(readFileSync(join(outputDir, 'spec', 'untested-contracts.json'), 'utf-8'))).toEqual([]);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60000);
+
   it('writes a vitest.config.ts disabling file parallelism when gate tests are generated (each spawns its own next dev against the same app dir)', () => {
     const repoDir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-writetree-repo-'));
     const outputDir = join(tmpdir(), `rebuild-dossier-writetree-out-${Date.now()}-${Math.random().toString(36).slice(2)}`);

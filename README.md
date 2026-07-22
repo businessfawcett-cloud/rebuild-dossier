@@ -186,12 +186,19 @@ moved to `tests/weak/` instead of shipped as if it were trustworthy. You'll get 
 {
   "outputDir": "/absolute/path/to/some-app-rebuild",
   "mutationsChecked": 8,
-  "weakTests": []
+  "weakTests": [],
+  "unrunnableTests": []
 }
 ```
 
-A non-empty `weakTests` isn't an error — it's the tool telling you honestly that a specific
-test didn't earn its place in `tests/visible/`.
+Both `weakTests` and `unrunnableTests` land in the same `tests/weak/` directory instead of
+`tests/visible/`, but for different reasons worth telling apart: a weak test ran fine and just
+never caught anything a mutation broke; an unrunnable test never passed even against the
+original, unmutated code (a broken import, a missing environment variable, infrastructure the
+bare repo doesn't have) — before this distinction existed, an unrunnable test looked
+indistinguishable from a 100%-effective one, since it "fails" identically whether or not the
+code under test was mutated. Neither is an error — it's the tool telling you honestly that a
+specific test didn't earn its place in `tests/visible/`, and why.
 
 ### 6. Hand it off
 

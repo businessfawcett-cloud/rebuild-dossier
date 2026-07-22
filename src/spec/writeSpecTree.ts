@@ -7,6 +7,7 @@ import { generateTestingRule } from './generateRules.js';
 import { generateSettingsJson } from './generateSettingsJson.js';
 import { generateContracts } from './generateContracts.js';
 import { generateTests } from './generateTests.js';
+import { generateNextApiTests } from './generateNextApiTests.js';
 import { generateGateTests, generateSecretEntryTests } from './generateGateTests.js';
 import { computeUntestedContractFiles } from './computeUntestedContractFiles.js';
 import { generateTestDependencies, type TestPlacement } from './generateTestDependencies.js';
@@ -129,9 +130,11 @@ export function writeSpecTree(input: WriteSpecTreeInput): WriteSpecTreeResult {
 
   writeFileSync(join(outputDir, 'kickoff-prompt.txt'), KICKOFF_PROMPT);
 
-  const { visible: expressVisible, heldOut } = generateTests(repoPath, evidence, cases);
+  const { visible: expressVisible, heldOut: expressHeldOut } = generateTests(repoPath, evidence, cases);
+  const { visible: nextApiVisible, heldOut: nextApiHeldOut } = generateNextApiTests(repoPath, evidence, cases);
   const gateTests = [...generateGateTests(repoPath, evidence, cases), ...generateSecretEntryTests(repoPath, evidence, cases)];
-  const visible = [...expressVisible, ...gateTests];
+  const visible = [...expressVisible, ...nextApiVisible, ...gateTests];
+  const heldOut = [...expressHeldOut, ...nextApiHeldOut];
 
   // Makes "only build what's currently failing" mechanically enforced (via
   // the PreToolUse hook in settings.json) instead of just a sentence in the
@@ -176,7 +179,12 @@ export default defineConfig({
   }
 
   const mutationReport = runMutationCheck(repoPath, [...visible, ...heldOut]);
-  const weak = new Set(mutationReport.weakTestFiles);
+  // An unrunnable test (never passed even unmutated) gets the same "don't
+  // trust this as visible/held-out" treatment as a weak one — both mean a
+  // rebuild agent shouldn't rely on it, even though the underlying reason
+  // (never runs at all vs. runs but proves nothing) is worth reporting
+  // separately, see generateSpec.ts's tool summary.
+  const weak = new Set([...mutationReport.weakTestFiles, ...mutationReport.unrunnableTestFiles]);
 
   if (weak.size > 0) {
     mkdirSync(join(outputDir, 'tests', 'weak'), { recursive: true });

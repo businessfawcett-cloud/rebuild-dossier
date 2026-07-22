@@ -60,7 +60,8 @@ export async function generateSpecHandler(args: z.infer<typeof generateSpecInput
           {
             outputDir,
             mutationsChecked: mutationReport.results.length,
-            weakTests: mutationReport.weakTestFiles
+            weakTests: mutationReport.weakTestFiles,
+            unrunnableTests: mutationReport.unrunnableTestFiles
           },
           null,
           2
