@@ -7,7 +7,10 @@ export interface GeneratedFile {
   content: string;
 }
 
-function sanitizeFilename(method: string | undefined, path: string): string {
+// Exported so other generators (spec-auditor, verify-against-spec) can
+// cross-reference the exact contract filename a route maps to, instead of
+// telling an agent to go rediscover the mapping itself.
+export function contractFilename(method: string | undefined, path: string): string {
   const prefix = method ?? 'PAGE';
   const pathPart = path
     .toLowerCase()
@@ -47,6 +50,6 @@ export function generateContracts(repoPath: string, routes: RouteEntry[]): Gener
       .filter((line) => line !== undefined)
       .join('\n');
 
-    return { filename: sanitizeFilename(route.method, route.path), content };
+    return { filename: contractFilename(route.method, route.path), content };
   });
 }

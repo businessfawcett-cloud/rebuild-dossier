@@ -13,6 +13,7 @@ import { generateTestDependencies, type TestPlacement } from './generateTestDepe
 import { generateSpecAuditorAgent, generateTestVerifierAgent } from './generateAgents.js';
 import { generateParallelTestFixWorkflow } from './generateWorkflow.js';
 import { generateVerifyAgainstSpecSkill } from './generateSkill.js';
+import { clusterTestsByFile } from './clusterTests.js';
 import { KICKOFF_PROMPT } from './generateKickoffPrompt.js';
 import { runMutationCheck, type MutationCheckReport } from '../mutation/runMutationCheck.js';
 
@@ -106,17 +107,17 @@ export function writeSpecTree(input: WriteSpecTreeInput): WriteSpecTreeResult {
 
   writeFileSync(join(outputDir, '.claude', 'settings.json'), JSON.stringify(generateSettingsJson(RUN_TESTS_COMMAND), null, 2));
 
-  for (const file of [generateSpecAuditorAgent(), generateTestVerifierAgent()]) {
-    writeFileSync(join(outputDir, '.claude', 'agents', file.filename), file.content);
+  const specAuditorFile = generateSpecAuditorAgent(evidence.routes);
+  if (specAuditorFile) {
+    writeFileSync(join(outputDir, '.claude', 'agents', specAuditorFile.filename), specAuditorFile.content);
   }
 
-  const workflowFile = generateParallelTestFixWorkflow();
-  writeFileSync(join(outputDir, '.claude', 'workflows', workflowFile.filename), workflowFile.content);
-
-  const skillFile = generateVerifyAgainstSpecSkill();
-  const skillPath = join(outputDir, '.claude', 'skills', skillFile.filename);
-  mkdirSync(dirname(skillPath), { recursive: true });
-  writeFileSync(skillPath, skillFile.content);
+  const skillFile = generateVerifyAgainstSpecSkill(evidence.routes);
+  if (skillFile) {
+    const skillPath = join(outputDir, '.claude', 'skills', skillFile.filename);
+    mkdirSync(dirname(skillPath), { recursive: true });
+    writeFileSync(skillPath, skillFile.content);
+  }
 
   for (const file of generateContracts(repoPath, evidence.routes)) {
     writeFileSync(join(outputDir, 'spec', 'contracts', file.filename), file.content);
@@ -192,6 +193,22 @@ export default defineConfig({
     join(outputDir, 'spec', 'test-dependencies.json'),
     JSON.stringify(generateTestDependencies(placements), null, 2)
   );
+
+  const heldOutFilenames = placements.filter((p) => p.dir === 'held-out').map((p) => p.file.filename);
+  const testVerifierFile = generateTestVerifierAgent(heldOutFilenames);
+  if (testVerifierFile) {
+    writeFileSync(join(outputDir, '.claude', 'agents', testVerifierFile.filename), testVerifierFile.content);
+  }
+
+  // Scoped to tests/visible/ specifically — those are the ones a rebuild
+  // agent is actively red-green-refactoring against; weak/held-out tests
+  // don't belong in this workflow's clustering at all.
+  const visiblePlacementFiles = placements.filter((p) => p.dir === 'visible').map((p) => p.file);
+  const clusters = clusterTestsByFile(visiblePlacementFiles);
+  const workflowFile = generateParallelTestFixWorkflow(clusters);
+  if (workflowFile) {
+    writeFileSync(join(outputDir, '.claude', 'workflows', workflowFile.filename), workflowFile.content);
+  }
 
   return { mutationReport };
 }

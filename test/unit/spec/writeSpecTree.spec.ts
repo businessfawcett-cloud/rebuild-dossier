@@ -67,10 +67,19 @@ describe('writeSpecTree', () => {
 
       expect(existsSync(join(outputDir, '.claude', 'rules', 'testing.md'))).toBe(true);
       expect(existsSync(join(outputDir, '.claude', 'settings.json'))).toBe(true);
+
+      // spec-auditor and the skill only need routes/contracts to exist — both do here.
       expect(existsSync(join(outputDir, '.claude', 'agents', 'spec-auditor.md'))).toBe(true);
-      expect(existsSync(join(outputDir, '.claude', 'agents', 'test-verifier.md'))).toBe(true);
-      expect(existsSync(join(outputDir, '.claude', 'workflows', 'parallel-test-fix.js'))).toBe(true);
+      expect(readFileSync(join(outputDir, '.claude', 'agents', 'spec-auditor.md'), 'utf-8')).toContain(
+        'GET /api/users/:id'
+      );
       expect(existsSync(join(outputDir, '.claude', 'skills', 'verify-against-spec', 'SKILL.md'))).toBe(true);
+
+      // This fixture has exactly one test total — no held-out split, no second
+      // cluster to parallelize against — so both get correctly skipped rather
+      // than generating dead-weight artifacts.
+      expect(existsSync(join(outputDir, '.claude', 'agents', 'test-verifier.md'))).toBe(false);
+      expect(existsSync(join(outputDir, '.claude', 'workflows', 'parallel-test-fix.js'))).toBe(false);
       const settings = JSON.parse(readFileSync(join(outputDir, '.claude', 'settings.json'), 'utf-8'));
       expect(settings.hooks.PostToolUse[0].hooks[0].command).toBe('npm test');
 
