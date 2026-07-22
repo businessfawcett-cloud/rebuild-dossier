@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -11,22 +11,57 @@ const OWN_PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const VITEST_ENTRY = join(OWN_PROJECT_ROOT, 'node_modules/vitest/vitest.mjs');
 const OWN_CONFIG_FILENAMES = ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mts', 'vite.config.ts', 'vite.config.js', 'vite.config.mts'];
 
+// playwright is never a real target app's own dependency — it's only ever
+// needed by the gate tests THIS tool generates. Once a target has its own
+// real node_modules (true for every real app), that became the sole source
+// and playwright silently stopped resolving, so every gate-test mutation
+// check against a real app failed at import time. vitest itself doesn't need
+// this treatment — it resolves its own package internally regardless of the
+// project root, since it's the process orchestrating the run.
+const TEST_ONLY_TOOLING_PACKAGES = ['playwright'];
+
+function symlinkEntry(target: string, linkPath: string): void {
+  try {
+    symlinkSync(target, linkPath, 'junction');
+  } catch {
+    // best effort — a failed entry surfaces later as a real resolution
+    // failure for whatever imports it, which reports as "unrunnable" rather
+    // than silently mis-scoring a real mutation
+  }
+}
+
 // The scratch copy only ever gets source files (copying node_modules per
 // mutation would be far too expensive) — so a generated test importing the
-// original repo's real runtime deps (express, etc.) needs node_modules
-// linked in, not copied. Falls back to rebuild-dossier's own node_modules
-// for fixtures that were never `npm install`ed (never true for a real
-// target repo, only for test fixtures of this tool itself).
+// original repo's real runtime deps (express, next, etc.) needs node_modules
+// linked in, not copied. When the target has no node_modules of its own
+// (never true for a real target repo, only for this tool's own tiny test
+// fixtures), falls back to a single junction over rebuild-dossier's whole
+// node_modules. When it does, scratchDir/node_modules is built as a real
+// directory with one junction per top-level package from the target's own
+// install — plus an overlay junction for any test-only tooling package
+// (see above) the target doesn't have, since that's never the target's own
+// dependency to provide.
 function linkNodeModules(originalRepoPath: string, scratchDir: string): void {
-  const ownNodeModules = existsSync(join(originalRepoPath, 'node_modules'))
-    ? join(originalRepoPath, 'node_modules')
-    : join(OWN_PROJECT_ROOT, 'node_modules');
-  try {
-    symlinkSync(ownNodeModules, join(scratchDir, 'node_modules'), 'junction');
-  } catch {
-    // best effort — if this fails, dependency-resolution failures inside the
-    // scratch copy will surface as a failed run, which reports as "killed"
-    // rather than silently mis-scoring a real mutation
+  const originalNodeModules = join(originalRepoPath, 'node_modules');
+  if (!existsSync(originalNodeModules)) {
+    symlinkEntry(join(OWN_PROJECT_ROOT, 'node_modules'), join(scratchDir, 'node_modules'));
+    return;
+  }
+
+  const scratchNodeModules = join(scratchDir, 'node_modules');
+  mkdirSync(scratchNodeModules, { recursive: true });
+
+  const ownEntries = new Set(readdirSync(originalNodeModules));
+  for (const entry of ownEntries) {
+    symlinkEntry(join(originalNodeModules, entry), join(scratchNodeModules, entry));
+  }
+
+  for (const pkg of TEST_ONLY_TOOLING_PACKAGES) {
+    if (ownEntries.has(pkg)) continue;
+    const ownProjectPkgPath = join(OWN_PROJECT_ROOT, 'node_modules', pkg);
+    if (existsSync(ownProjectPkgPath)) {
+      symlinkEntry(ownProjectPkgPath, join(scratchNodeModules, pkg));
+    }
   }
 }
 
