@@ -23,6 +23,21 @@ describe('isPrivateOrLoopbackAddress', () => {
     expect(isPrivateOrLoopbackAddress('172.32.0.1')).toBe(false); // just outside 172.16/12
     expect(isPrivateOrLoopbackAddress('2001:4860:4860::8888')).toBe(false);
   });
+
+  it('flags IPv4-mapped IPv6 addresses that embed a private/loopback IPv4 (e.g. "http://[::ffff:127.0.0.1]/")', () => {
+    expect(isPrivateOrLoopbackAddress('::ffff:127.0.0.1')).toBe(true);
+    expect(isPrivateOrLoopbackAddress('::ffff:169.254.169.254')).toBe(true); // cloud metadata, mapped form
+    expect(isPrivateOrLoopbackAddress('::ffff:10.0.0.5')).toBe(true);
+    expect(isPrivateOrLoopbackAddress('::ffff:8.8.8.8')).toBe(false); // mapped but genuinely public
+  });
+
+  it('flags the CGNAT range 100.64.0.0/10, used by real cloud providers for metadata (e.g. Oracle Cloud)', () => {
+    expect(isPrivateOrLoopbackAddress('100.64.0.1')).toBe(true);
+    expect(isPrivateOrLoopbackAddress('100.100.100.200')).toBe(true);
+    expect(isPrivateOrLoopbackAddress('100.127.255.255')).toBe(true);
+    expect(isPrivateOrLoopbackAddress('100.63.255.255')).toBe(false); // just outside 100.64/10
+    expect(isPrivateOrLoopbackAddress('100.128.0.0')).toBe(false); // just outside 100.64/10
+  });
 });
 
 describe('enforceUrlAllowlist', () => {

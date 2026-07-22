@@ -13,23 +13,32 @@ export class UrlNotAllowedError extends Error {
 // link-local (which includes the 169.254.169.254 cloud-metadata endpoint
 // most cloud providers expose — a crawler that will fetch any URL a caller
 // names is a textbook way to read a host's own cloud credentials).
+function isPrivateOrLoopbackIpv4(ip: string): boolean {
+  const [a, b] = ip.split('.').map(Number);
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b! >= 16 && b! <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b! >= 64 && b! <= 127) return true; // CGNAT, 100.64.0.0/10 - real cloud metadata ranges live here too
+  if (a === 0) return true;
+  return false;
+}
+
 export function isPrivateOrLoopbackAddress(ip: string): boolean {
   const version = isIP(ip);
   if (version === 4) {
-    const [a, b] = ip.split('.').map(Number);
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 172 && b! >= 16 && b! <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 0) return true;
-    return false;
+    return isPrivateOrLoopbackIpv4(ip);
   }
   if (version === 6) {
     const lower = ip.toLowerCase();
     if (lower === '::1') return true;
     if (lower.startsWith('fe80:')) return true;
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+    // IPv4-mapped IPv6 (e.g. "::ffff:127.0.0.1") - the embedded IPv4 address is
+    // what a dual-stack network actually connects to, so it must be checked too.
+    const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped && isIP(mapped[1]!) === 4) return isPrivateOrLoopbackIpv4(mapped[1]!);
     return false;
   }
   return false;
@@ -37,8 +46,8 @@ export function isPrivateOrLoopbackAddress(ip: string): boolean {
 
 function isRestrictedMode(): boolean {
   // Same signal as the path allowlist — in practice both are configured
-  // together for the hosted deployment. Neither matters for local stdio
-  // usage, where the calling user already trusts themselves.
+  // together whenever this server runs in HTTP mode. Neither matters for
+  // local stdio usage, where the calling user already trusts themselves.
   return parseAllowedRoots(process.env.REBUILD_DOSSIER_ALLOWED_PATHS).length > 0;
 }
 
