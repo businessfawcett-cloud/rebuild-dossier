@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import type { EvidenceBundle } from '../ingest/evidenceSchema.js';
 import type { Case } from '../reconciliation/types.js';
 import { generateClaudeMd } from './generateClaudeMd.js';
@@ -9,6 +9,10 @@ import { generateContracts } from './generateContracts.js';
 import { generateTests } from './generateTests.js';
 import { generateGateTests, generateSecretEntryTests } from './generateGateTests.js';
 import { computeUntestedContractFiles } from './computeUntestedContractFiles.js';
+import { generateTestDependencies, type TestPlacement } from './generateTestDependencies.js';
+import { generateSpecAuditorAgent, generateTestVerifierAgent } from './generateAgents.js';
+import { generateParallelTestFixWorkflow } from './generateWorkflow.js';
+import { generateVerifyAgainstSpecSkill } from './generateSkill.js';
 import { KICKOFF_PROMPT } from './generateKickoffPrompt.js';
 import { runMutationCheck, type MutationCheckReport } from '../mutation/runMutationCheck.js';
 
@@ -81,6 +85,9 @@ export function writeSpecTree(input: WriteSpecTreeInput): WriteSpecTreeResult {
   }
 
   mkdirSync(join(outputDir, '.claude', 'rules'), { recursive: true });
+  mkdirSync(join(outputDir, '.claude', 'agents'), { recursive: true });
+  mkdirSync(join(outputDir, '.claude', 'workflows'), { recursive: true });
+  mkdirSync(join(outputDir, '.claude', 'skills'), { recursive: true });
   mkdirSync(join(outputDir, 'spec', 'contracts'), { recursive: true });
   mkdirSync(join(outputDir, 'tests', 'visible'), { recursive: true });
   mkdirSync(join(outputDir, 'tests', 'held-out'), { recursive: true });
@@ -98,6 +105,18 @@ export function writeSpecTree(input: WriteSpecTreeInput): WriteSpecTreeResult {
   writeFileSync(join(outputDir, '.claude', 'rules', testingRule.filename), testingRule.content);
 
   writeFileSync(join(outputDir, '.claude', 'settings.json'), JSON.stringify(generateSettingsJson(RUN_TESTS_COMMAND), null, 2));
+
+  for (const file of [generateSpecAuditorAgent(), generateTestVerifierAgent()]) {
+    writeFileSync(join(outputDir, '.claude', 'agents', file.filename), file.content);
+  }
+
+  const workflowFile = generateParallelTestFixWorkflow();
+  writeFileSync(join(outputDir, '.claude', 'workflows', workflowFile.filename), workflowFile.content);
+
+  const skillFile = generateVerifyAgainstSpecSkill();
+  const skillPath = join(outputDir, '.claude', 'skills', skillFile.filename);
+  mkdirSync(dirname(skillPath), { recursive: true });
+  writeFileSync(skillPath, skillFile.content);
 
   for (const file of generateContracts(repoPath, evidence.routes)) {
     writeFileSync(join(outputDir, 'spec', 'contracts', file.filename), file.content);
@@ -161,14 +180,18 @@ export default defineConfig({
   if (weak.size > 0) {
     mkdirSync(join(outputDir, 'tests', 'weak'), { recursive: true });
   }
-  for (const file of visible) {
-    const dir = weak.has(file.filename) ? 'weak' : 'visible';
+  const placements: TestPlacement[] = [
+    ...visible.map((file): TestPlacement => ({ file, dir: weak.has(file.filename) ? 'weak' : 'visible' })),
+    ...heldOut.map((file): TestPlacement => ({ file, dir: weak.has(file.filename) ? 'weak' : 'held-out' }))
+  ];
+  for (const { file, dir } of placements) {
     writeFileSync(join(outputDir, 'tests', dir, file.filename), file.content);
   }
-  for (const file of heldOut) {
-    const dir = weak.has(file.filename) ? 'weak' : 'held-out';
-    writeFileSync(join(outputDir, 'tests', dir, file.filename), file.content);
-  }
+
+  writeFileSync(
+    join(outputDir, 'spec', 'test-dependencies.json'),
+    JSON.stringify(generateTestDependencies(placements), null, 2)
+  );
 
   return { mutationReport };
 }

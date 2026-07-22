@@ -67,6 +67,10 @@ describe('writeSpecTree', () => {
 
       expect(existsSync(join(outputDir, '.claude', 'rules', 'testing.md'))).toBe(true);
       expect(existsSync(join(outputDir, '.claude', 'settings.json'))).toBe(true);
+      expect(existsSync(join(outputDir, '.claude', 'agents', 'spec-auditor.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '.claude', 'agents', 'test-verifier.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '.claude', 'workflows', 'parallel-test-fix.js'))).toBe(true);
+      expect(existsSync(join(outputDir, '.claude', 'skills', 'verify-against-spec', 'SKILL.md'))).toBe(true);
       const settings = JSON.parse(readFileSync(join(outputDir, '.claude', 'settings.json'), 'utf-8'));
       expect(settings.hooks.PostToolUse[0].hooks[0].command).toBe('npm test');
 
@@ -95,6 +99,11 @@ describe('writeSpecTree', () => {
 
       // The one route in this fixture is fully covered by a generated test.
       expect(JSON.parse(readFileSync(join(outputDir, 'spec', 'untested-contracts.json'), 'utf-8'))).toEqual([]);
+
+      const testDeps = JSON.parse(readFileSync(join(outputDir, 'spec', 'test-dependencies.json'), 'utf-8'));
+      const [depKey, depFiles] = Object.entries(testDeps)[0] as [string, string[]];
+      expect(depKey).toMatch(/^tests\/(visible|weak)\//);
+      expect(depFiles).toEqual(['server.ts']);
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
       rmSync(outputDir, { recursive: true, force: true });
