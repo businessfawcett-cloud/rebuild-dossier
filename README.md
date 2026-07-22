@@ -134,6 +134,15 @@ signal quietly agrees the behavior looks intentional. Do this before resolving t
 it changes what shows up there (and can seed a case entirely on its own, with zero other
 evidence — see [docs/v0-findings.md](docs/v0-findings.md) for why that matters).
 
+Matching is plain token overlap against each open case's file path and claim text, not fuzzy or
+semantic — so one bug description can match (and auto-resolve) more open cases than you intended
+if your codebase has several similarly-named components. In the validated example, one bug about
+"the login gate" matched and closed all three of Madeline's near-duplicate gate components in a
+single call, before any of them were reviewed individually. `resolve_case` overwrites a case's
+decision regardless of its current status, so if that's not what you meant, call it directly on
+the ones it swept up too broadly — don't assume every case it touched was actually the same
+decision.
+
 ### 4. Resolve the case queue
 
 ```
@@ -158,11 +167,17 @@ phases 1–2 are literally what produce `spec/` in the first place.
 generate_spec({ repoPath: "/absolute/path/to/some-app" })
 ```
 
-Only callable once the queue is empty. Writes `CLAUDE.md`, `.claude/` (rules, hooks, subagents,
-a workflow, a skill — all derived from *this* project's actual contracts and tests, not
-boilerplate), `spec/` (contracts, locked decisions, `test-dependencies.json`,
-`untested-contracts.json`), and `tests/` to a clean sibling `some-app-rebuild/` directory —
-never into the original repo. This step also runs a real mutation check: it deliberately breaks
+Only callable once the queue is empty. Writes `CLAUDE.md`, `.claude/` (rules, hooks, a
+spec-auditor subagent, and a verify-against-spec skill — all derived from *this* project's actual
+contracts and tests, not boilerplate), `spec/` (contracts, locked decisions,
+`test-dependencies.json`, `untested-contracts.json`), and `tests/` to a clean sibling
+`some-app-rebuild/` directory — never into the original repo. Two more `.claude/` artifacts are
+generated only when they'd earn their keep: a `test-verifier` subagent, only if there are
+held-out tests to guard; a `parallel-test-fix` workflow, only if the generated tests split into
+two or more independent clusters (by shared route files) worth fixing concurrently. A small app
+with a couple of tests covering the same routes — like the validated example above — gets
+neither; that's not a bug, it's the generator refusing to hand a rebuild agent tooling it has
+nothing real to do with. This step also runs a real mutation check: it deliberately breaks
 the original code (flips a comparison, drops a null check, off-by-ones a loop bound) in a
 scratch copy and confirms each generated test actually catches it — anything that doesn't gets
 moved to `tests/weak/` instead of shipped as if it were trustworthy. You'll get back:
