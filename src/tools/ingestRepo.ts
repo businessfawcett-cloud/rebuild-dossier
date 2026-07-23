@@ -1,4 +1,6 @@
 import * as z from 'zod/v4';
+import { join } from 'node:path';
+import type { ServerContext } from '@modelcontextprotocol/server';
 import { ingestRepo } from '../ingest/ingestRepo.js';
 import { evidencePath } from '../state/dossierPaths.js';
 import { atomicWriteFile } from '../state/atomicWrite.js';
@@ -7,7 +9,13 @@ import { enforcePathAllowlist } from '../security/pathAllowlist.js';
 import { findCandidateAppDirs } from '../ingest/detectMonorepoHint.js';
 
 export const ingestRepoInputSchema = z.object({
-  path: z.string().describe('Absolute path to the repo to ingest')
+  path: z.string().describe('Absolute path to the repo to ingest'),
+  interactive: z
+    .boolean()
+    .optional()
+    .describe(
+      'When true and 0 routes are found at a monorepo-shaped path, ask via elicitation which candidate directory is the real app, then ingest that instead'
+    )
 });
 
 export const ingestRepoConfig = {
@@ -16,7 +24,42 @@ export const ingestRepoConfig = {
   inputSchema: ingestRepoInputSchema
 };
 
-export async function ingestRepoHandler(args: z.infer<typeof ingestRepoInputSchema>) {
+const MONOREPO_CHOICE_SCHEMA = {
+  type: 'object' as const,
+  properties: {
+    path: { type: 'string' as const, title: 'Candidate app directory (paste one of the paths listed above, exactly)' }
+  },
+  required: ['path']
+};
+
+// Deliberately asks rather than silently picking one — the same
+// "surface ambiguity, don't silently resolve it" principle reconciliation
+// already follows for silent signal agreement. A real monorepo can have
+// multiple candidate apps; there's no principled basis to auto-pick one, and
+// EvidenceBundle itself models exactly one app (one packageJson, one routes
+// array) — aggregating several apps' worth of evidence into one ingest would
+// be a bigger, riskier change than asking, and would conflate decisions
+// across genuinely separate applications. Mirrors get_case_queue's own
+// interactive/scripted-fallback split rather than introducing a new pattern.
+async function elicitMonorepoChoice(repoPath: string, candidates: string[], ctx: ServerContext): Promise<string | null> {
+  try {
+    const response = await ctx.mcpReq.elicitInput({
+      mode: 'form',
+      message: `0 routes were found at ${repoPath} — this looks like a monorepo root, not the app itself. Which of these is the real app?\n${candidates.map((c) => `- ${c}`).join('\n')}`,
+      requestedSchema: MONOREPO_CHOICE_SCHEMA
+    });
+    if (response.action !== 'accept') return null;
+    const chosen = String(response.content?.path ?? '').trim();
+    // Only acts on an exact match to a real candidate — never blindly trusts
+    // free text (a typo or hallucinated path would otherwise fail confusingly
+    // deeper in the pipeline instead of falling back to the hint here).
+    return candidates.includes(chosen) ? chosen : null;
+  } catch {
+    return null; // elicitation unsupported by this client — fall back to the hint
+  }
+}
+
+export async function ingestRepoHandler(args: z.infer<typeof ingestRepoInputSchema>, ctx?: ServerContext) {
   enforcePathAllowlist(args.path);
   const bundle = await ingestRepo(args.path);
   atomicWriteFile(evidencePath(args.path), JSON.stringify(bundle, null, 2));
@@ -28,6 +71,19 @@ export async function ingestRepoHandler(args: z.infer<typeof ingestRepoInputSche
   // directly rather than silently returning 0 and leaving someone to
   // debug their way to "point at the nested app instead."
   const monorepoCandidates = bundle.routes.length === 0 ? findCandidateAppDirs(args.path) : [];
+
+  if (args.interactive && monorepoCandidates.length > 0 && ctx) {
+    const chosen = await elicitMonorepoChoice(args.path, monorepoCandidates, ctx);
+    if (chosen) {
+      const result = await ingestRepoHandler({ path: join(args.path, chosen) }, ctx);
+      const resolvedSummary = JSON.parse(result.content[0]!.text);
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify({ ...resolvedSummary, resolvedMonorepoChoice: chosen }, null, 2) }
+        ]
+      };
+    }
+  }
 
   const summary = {
     routes: bundle.routes.length,
