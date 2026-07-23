@@ -429,17 +429,19 @@ is never read when `ingest_repo` is pointed at `apps/web` directly — exactly t
 `monorepoHint` fix (above) actively steers people toward. This is a real, known gap in the fix's
 coverage for monorepos specifically, not a hypothetical.
 
-**On whether either triggering incident is actually explained — verified, not assumed, where
-verification was possible:** the `node_modules.bak` rename definitely wasn't itself gitignored
-(a `.bak` suffix doesn't match a `node_modules` pattern regardless of implementation quality —
-that's a straightforward negative). The OpenCode user's 4 duplicate directories are a weaker
-claim: the only check performed was a human/agent read of `.gitignore`'s literal contents via
-`cat`, relayed secondhand, not git's own authoritative `git check-ignore -v <path>` — which also
-accounts for nested `.gitignore` files, `.git/info/exclude`, and glob patterns that wouldn't
-appear as a literal name match. That more authoritative check has not yet been run. Until it is,
-"the OpenCode duplicates were genuinely git-tracked" should be read as *reported*, not
-independently confirmed — and if it turns out any of them are actually gitignored, that's a real
-regression in this fix to chase, not a closed item.
+**On whether either triggering incident is actually explained — now verified, not assumed:** the
+`node_modules.bak` rename definitely wasn't itself gitignored (a `.bak` suffix doesn't match a
+`node_modules` pattern regardless of implementation quality — a straightforward negative). The
+OpenCode user's 4 duplicate directories were initially only checked via a `cat .gitignore` read
+(weaker — misses nested `.gitignore` files, `.git/info/exclude`, and glob patterns that wouldn't
+appear as a literal name match). Re-checked with git's own authoritative
+`git check-ignore -v cardvault-fresh "cardvault/catchandtrade-master" scripts`: **empty output for
+all of them.** None are gitignored — confirmed, not just reported. The 4x duplication is exactly
+what it looked like: the same `generate-api-routes.js` scaffolding file committed 4 times across
+directories that are all genuinely version-controlled. Real repo mess, not a `.gitignore` gap and
+not a rebuild-dossier bug — the tool behaved correctly by surfacing it as 4 separate cases; the
+actual cause of the duplication is a fact about that repo's own history, outside this tool's
+scope to explain or fix.
 
 ## Bottom line
 
