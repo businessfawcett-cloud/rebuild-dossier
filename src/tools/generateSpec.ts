@@ -1,4 +1,5 @@
 import * as z from 'zod/v4';
+import { existsSync } from 'node:fs';
 import { dirname, basename, join } from 'node:path';
 import { loadCases } from '../state/caseStore.js';
 import { loadEvidenceBundle } from '../state/evidenceStore.js';
@@ -52,6 +53,14 @@ export async function generateSpecHandler(args: z.infer<typeof generateSpecInput
   const cases = loadCases(args.repoPath);
   const { mutationReport } = writeSpecTree({ repoPath: args.repoPath, outputDir, evidence, cases });
 
+  // Real finding: a target repo with no node_modules of its own makes every
+  // generated test fail to even import its dependencies inside the
+  // mutation-check scratch copy — every test lands in tests/weak/ as
+  // "unrunnable," with nothing in the output explaining why. This was
+  // initially misdiagnosed as a database/infrastructure problem; the actual
+  // cause (missing `npm install`) is much simpler and worth stating plainly.
+  const missingNodeModules = !existsSync(join(args.repoPath, 'node_modules'));
+
   return {
     content: [
       {
@@ -61,7 +70,13 @@ export async function generateSpecHandler(args: z.infer<typeof generateSpecInput
             outputDir,
             mutationsChecked: mutationReport.results.length,
             weakTests: mutationReport.weakTestFiles,
-            unrunnableTests: mutationReport.unrunnableTestFiles
+            unrunnableTests: mutationReport.unrunnableTestFiles,
+            ...(missingNodeModules
+              ? {
+                  warning:
+                    'No node_modules found in the target repo — mutation-check results are unreliable without the target\'s own real dependencies installed. Run `npm install` in the target repo, then re-run generate_spec.'
+                }
+              : {})
           },
           null,
           2
