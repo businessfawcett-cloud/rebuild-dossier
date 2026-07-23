@@ -438,10 +438,34 @@ appear as a literal name match). Re-checked with git's own authoritative
 `git check-ignore -v cardvault-fresh "cardvault/catchandtrade-master" scripts`: **empty output for
 all of them.** None are gitignored — confirmed, not just reported. The 4x duplication is exactly
 what it looked like: the same `generate-api-routes.js` scaffolding file committed 4 times across
-directories that are all genuinely version-controlled. Real repo mess, not a `.gitignore` gap and
-not a rebuild-dossier bug — the tool behaved correctly by surfacing it as 4 separate cases; the
-actual cause of the duplication is a fact about that repo's own history, outside this tool's
-scope to explain or fix.
+directories that are all genuinely version-controlled. Real repo mess, not a `.gitignore` gap —
+but it is not "just" a non-bug either.
+
+**Third real-world confirmation that the near-duplicate-component detector (shipped in
+`6e5a816`) actually works, not merely that it's still needed.** Four genuinely separate, tracked
+files is exactly the shape that detector exists for, and it fired correctly, unprompted, on data
+it had never seen before: `get_case_queue`'s output on the real OpenCode session showed all 4
+cases with `relatedCaseIds` populated, each cross-referencing the other 3 —
+
+```
+"relatedCaseIds": [
+  "case:component:cardvault/catchandtrade-master/scripts/generate-api-routes.js",
+  "case:component:cardvault/scripts/generate-api-routes.js",
+  "case:component:cardvault-fresh/scripts/generate-api-routes.js",
+  "case:component:scripts/generate-api-routes.js"
+]
+```
+
+This was checked directly against the real case-queue JSON (not inferred from OpenCode's own
+summary, which didn't mention cross-references at all and read the 4 cases as independent).
+Counting all three real runs it's been exercised on: the original Madeline 3-gate-variant case it
+was built to fix, a direct unit-level check against Madeline data, and now this — a third,
+independently-sourced real app. The tool still surfaced 4 separate cases (correct — these are 4
+distinct files, not 1), but with the cross-reference a human resolving one immediately sees the
+other 3 are almost certainly the same decision, rather than re-deriving that fact 3 more times.
+The actual cause of the underlying duplication is a fact about that repo's own history, outside
+this tool's scope to explain or fix — but whether the tool *handles* that mess well is now
+answered, positively, a third time.
 
 **The monorepo workflow gap is now fully closed, not just hinted at.** `monorepoHint` (above)
 required a second manual `ingest_repo` call even once a user noticed it; `ingest_repo` now
