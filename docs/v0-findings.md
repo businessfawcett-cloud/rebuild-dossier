@@ -1,6 +1,6 @@
 # rebuild-dossier v0: findings
 
-**Status:** v0 built (6 MCP tools, 239 unit tests), validated end-to-end against **two real,
+**Status:** v0 built (6 MCP tools, 241 unit tests), validated end-to-end against **two real,
 structurally different apps** (Madeline — Next.js client-side gate pattern; catchandtrade — a
 real Prisma+Postgres+Stripe+eBay-backed API app), across **two model tiers** (Sonnet, Haiku),
 with a precisely-characterized weak-model failure boundary and a security-hardening pass
@@ -337,12 +337,56 @@ against a live server — no gap found there. The one structural finding (#1) is
 weighing most heavily: a textual check that never touches the real filesystem is a category of
 bug that can recur anywhere else path input is trusted, not a one-off miss.
 
+## Reconciliation wiring: closing the mechanism gap, not the real-world-messiness gap
+
+Neither real validation run (Madeline, catchandtrade) ever contained a genuine comment-vs-code
+disagreement — both apps had zero `TODO`/`FIXME` comments and no case where a real comment signal
+conflicted with a real known bug. `classifyCase`'s logic for this — the known-bug-vs-intentional-
+evidence conflict, arguably the single most important rule in the whole system ("a flagged bug
+never silently loses to 'looks intentional' evidence") — already has full hand-fixture coverage:
+~10 hand-authored `Signal` objects proving the logic itself is correct. What had never been
+exercised is the wiring in front of that logic: does a real comment, scanned from a real file by
+`extractCommentSignals`/`detectIntentionalComment`, and a real known bug, matched by
+`matchKnownBug`'s actual token-overlap logic (not hand-picked hints), actually produce a `Signal`
+shaped the way `classifyCase` expects, when a genuine disagreement exists?
+
+**Built a synthetic (not hand-fixture) test to answer exactly that, and only that.** A real file
+with a real comment (`// This function intentionally allows empty search queries...`) and a real
+known bug (`"Search queries that are empty silently return all results instead of an error"`),
+run through the actual tool handlers (`ingest_repo` → `flag_known_bug` → `buildCases`), no
+hand-built `Signal` objects anywhere. Result: the case is genuinely `open` with a
+`known_bug_vs_intentional_evidence` conflict, the comment signal was genuinely extracted (not
+injected), and a control run (same file, no known bug flagged) confirms the same comment
+auto-resolves cleanly on its own — isolating that the conflict comes from the known-bug match
+specifically, not some other quirk of the fixture.
+
+**What this does and does not prove, stated as precisely as the "0/12 held-out" result above:**
+this closes the *mechanism* question — the wiring between real signal extraction and
+`classifyCase` genuinely works, for at least one clean, deliberately-constructed conflict. It
+says nothing about the *real-world-messiness* question: whether actual comments in the wild —
+sarcastic, stale, hedged ("this might need fixing?"), or referring to a different line than the
+one they sit above — trip up `detectIntentionalComment`'s pattern matching in ways no fixture
+anticipated. Every other real finding in this build (the `src/app` layout miss, the
+config-export-identifier pattern, the vanishing known bug, the test-script scoping bug) came from
+real-world messiness, not a constructed case — there's no reason to expect comment-signal
+extraction is uniquely immune to that pattern. Deliberately **not** chased further this round: a
+third real app with actual, naturally-occurring comment signals remains the stronger validation,
+backlogged and revisited opportunistically rather than manufactured on demand.
+
+241 tests passing, typecheck clean.
+
 ## What's deliberately not done (named, not silently skipped)
 
 - **Reconciliation on API-shaped ambiguity, untested.** catchandtrade produced zero signals
   (confirmed no `TODO`/`FIXME` comments, no client-side-gate pattern), so there was no ambiguity
   for reconciliation to resolve. Whether it behaves the same on an API validation rule or
   error-response shape as it did on a UI gate has no answer yet either way.
+- **Real-world comment-signal messiness, untested.** The synthetic test above (see "Reconciliation
+  wiring") proves the mechanism wires together correctly on one clean, deliberately-constructed
+  conflict. It says nothing about whether real, naturally-occurring comments — sarcastic, stale,
+  hedged, or misattributed to the wrong line — trip up `detectIntentionalComment`'s pattern
+  matching in ways no fixture anticipated. A third real app with actual comment signals would
+  answer this; none has been found or manufactured yet.
 - **Asset-manifest extraction** (binary files copied verbatim + hash manifest, locked contract
   tier) — explicitly deferred to a future pass mid-build.
 - **A 4th mutator** ("no-op the handler entirely") — the current 3 (flip comparison, drop null
