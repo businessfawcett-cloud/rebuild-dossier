@@ -377,6 +377,16 @@ backlogged and revisited opportunistically rather than manufactured on demand.
 
 ## What's deliberately not done (named, not silently skipped)
 
+- **`.gitignore` awareness in `listSourceFiles.ts` — elevated priority, not just "still known."**
+  Triggered independently **twice** in one session, via two genuinely different mechanisms: (1)
+  an OpenCode user's real monorepo had duplicate-case directories that turned out to be
+  git-tracked, not ignored — so this specific instance wasn't the cause there, but exposed that
+  the tool has no way to tell the difference; (2) directly reproducing that investigation,
+  renaming a real `node_modules` to `node_modules.bak` *in place* (to test a different
+  hypothesis) caused `ingest_repo` to scan straight into it — the hardcoded ignore list matches
+  the literal string `node_modules`, nothing else — producing 409 garbage cases from third-party
+  package comments. Two independent paths into the same gap in one session is stronger evidence
+  for prioritizing the fix than a single observation would be, not "already known, nothing new."
 - **Reconciliation on API-shaped ambiguity, untested.** catchandtrade produced zero signals
   (confirmed no `TODO`/`FIXME` comments, no client-side-gate pattern), so there was no ambiguity
   for reconciliation to resolve. Whether it behaves the same on an API validation rule or
