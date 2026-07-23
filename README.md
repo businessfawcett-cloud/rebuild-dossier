@@ -116,6 +116,13 @@ layouts, including ones that never actually declare a `workspaces` field). The h
 candidate directories found under `apps/`/`packages/` so you don't have to hunt for the real app
 yourself — re-run `ingest_repo` pointed at one of those instead.
 
+If your client supports MCP elicitation, you can skip the manual re-run entirely: pass
+`interactive: true` and, when a monorepo root with candidates is detected, `ingest_repo` asks
+which one is the real app and ingests it directly — it never silently guesses on its own, the
+same way `get_case_queue`'s interactive mode always asks rather than resolving anything without
+you. Declining, an unsupported client, or an answer that isn't one of the real candidates all
+fall back to the plain hint above, unchanged.
+
 ### 2. (Optional) Crawl the live site
 
 ```

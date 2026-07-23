@@ -1,6 +1,6 @@
 # rebuild-dossier v0: findings
 
-**Status:** v0 built (6 MCP tools, 255 unit tests), validated end-to-end against **two real,
+**Status:** v0 built (6 MCP tools, 260 unit tests), validated end-to-end against **two real,
 structurally different apps** (Madeline — Next.js client-side gate pattern; catchandtrade — a
 real Prisma+Postgres+Stripe+eBay-backed API app), across **two model tiers** (Sonnet, Haiku),
 with a precisely-characterized weak-model failure boundary and a security-hardening pass
@@ -442,6 +442,17 @@ directories that are all genuinely version-controlled. Real repo mess, not a `.g
 not a rebuild-dossier bug — the tool behaved correctly by surfacing it as 4 separate cases; the
 actual cause of the duplication is a fact about that repo's own history, outside this tool's
 scope to explain or fix.
+
+**The monorepo workflow gap is now fully closed, not just hinted at.** `monorepoHint` (above)
+required a second manual `ingest_repo` call even once a user noticed it; `ingest_repo` now
+accepts `interactive: true` and, when elicitation is supported, asks which candidate directory is
+the real app and ingests it directly in the same call. Deliberately does not silently auto-pick
+a single candidate: `EvidenceBundle` models exactly one app, so aggregating multiple workspaces
+would be a real schema change, not a small extension, and would silently conflate decisions
+across genuinely separate applications — a worse silent-resolution violation than picking the
+wrong directory would be. Mirrors `get_case_queue`'s existing interactive/scripted-fallback split
+rather than introducing a new pattern; declining, an unsupported client, or an answer that isn't
+an exact match to a real candidate all fall back to the plain hint, unchanged.
 
 ## Bottom line
 
