@@ -418,11 +418,28 @@ via two genuinely different mechanisms (an OpenCode user's real monorepo, and a 
 rename made while investigating a separate question), which is stronger evidence for prioritizing
 it than either incident alone. Added the `ignore` package (small, standard, used internally by
 ESLint — a real .gitignore implementation is fiddly enough to get right that hand-rolling it
-wasn't worth the risk of a subtly-wrong version). Scoped to the repo-root `.gitignore` only, not
-nested per-directory ones or a monorepo's actual git root. Worth stating honestly: neither
-triggering incident would actually have been prevented by this fix — the `node_modules` rename
-was never itself gitignored, and the OpenCode duplicates were genuinely git-tracked. This closes
-the general latent gap those incidents exposed, not either specific incident.
+wasn't worth the risk of a subtly-wrong version).
+
+**Known limitation, stated explicitly rather than left to surface later as a surprise:** only the
+`.gitignore` at the exact path `ingest_repo` is pointed at gets read — not nested per-directory
+`.gitignore` files, and not a monorepo's actual git root if `ingest_repo` is pointed at a nested
+app (e.g. `apps/web`) inside it. Concretely: if a monorepo's root `.gitignore` excludes something
+broadly (say, `**/*.local.ts`) but `apps/web` has no `.gitignore` of its own, that root-level rule
+is never read when `ingest_repo` is pointed at `apps/web` directly — exactly the workflow the
+`monorepoHint` fix (above) actively steers people toward. This is a real, known gap in the fix's
+coverage for monorepos specifically, not a hypothetical.
+
+**On whether either triggering incident is actually explained — verified, not assumed, where
+verification was possible:** the `node_modules.bak` rename definitely wasn't itself gitignored
+(a `.bak` suffix doesn't match a `node_modules` pattern regardless of implementation quality —
+that's a straightforward negative). The OpenCode user's 4 duplicate directories are a weaker
+claim: the only check performed was a human/agent read of `.gitignore`'s literal contents via
+`cat`, relayed secondhand, not git's own authoritative `git check-ignore -v <path>` — which also
+accounts for nested `.gitignore` files, `.git/info/exclude`, and glob patterns that wouldn't
+appear as a literal name match. That more authoritative check has not yet been run. Until it is,
+"the OpenCode duplicates were genuinely git-tracked" should be read as *reported*, not
+independently confirmed — and if it turns out any of them are actually gitignored, that's a real
+regression in this fix to chase, not a closed item.
 
 ## Bottom line
 
