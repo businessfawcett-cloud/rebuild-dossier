@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { join, dirname, basename } from 'node:path';
 import type { EvidenceBundle } from '../ingest/evidenceSchema.js';
 import type { Case } from '../reconciliation/types.js';
 import { generateClaudeMd } from './generateClaudeMd.js';
@@ -96,6 +97,41 @@ export function writeSpecTree(input: WriteSpecTreeInput): WriteSpecTreeResult {
   if (existsSync(outputDir)) {
     throw new Error(`Refusing to overwrite existing directory: ${outputDir}`);
   }
+
+  // Real, live-triggered finding: generate_spec is a genuinely slow call for
+  // a real app (a full mutation check can run several minutes) — long enough
+  // that an MCP client can time out waiting for the response while the
+  // server keeps writing directly into outputDir regardless. A client that
+  // gave up has no way to distinguish "still running/died partway" from "a
+  // real, complete, legitimately test-less result" — both looked like a
+  // directory with CLAUDE.md/contracts but no tests/test-dependencies.json
+  // yet. A fresh agent facing that ambiguity took the empty tests/ directory
+  // at face value and wrote its own self-authored, self-graded test —
+  // exactly the failure mode this tool exists to prevent. Fixed the same way
+  // atomicWriteFile.ts already does for single files: build the entire tree
+  // in a hidden sibling directory first, and only rename it into the real
+  // outputDir path once every write below (including the slow mutation
+  // check) has fully succeeded. outputDir now either doesn't exist at all
+  // (still running, or died) or exists complete — never partial.
+  const buildDir = join(dirname(outputDir), `.tmp-${basename(outputDir)}-${randomUUID()}`);
+
+  let mutationReport: MutationCheckReport;
+  try {
+    mutationReport = writeSpecTreeInto(buildDir, { repoPath, evidence, cases });
+  } catch (err) {
+    rmSync(buildDir, { recursive: true, force: true });
+    throw err;
+  }
+
+  renameSync(buildDir, outputDir);
+  return { mutationReport };
+}
+
+function writeSpecTreeInto(
+  outputDir: string,
+  input: Pick<WriteSpecTreeInput, 'repoPath' | 'evidence' | 'cases'>
+): MutationCheckReport {
+  const { repoPath, evidence, cases } = input;
 
   mkdirSync(join(outputDir, '.claude', 'rules'), { recursive: true });
   mkdirSync(join(outputDir, '.claude', 'agents'), { recursive: true });
@@ -232,5 +268,5 @@ export default defineConfig({
     writeFileSync(join(outputDir, '.claude', 'workflows', workflowFile.filename), workflowFile.content);
   }
 
-  return { mutationReport };
+  return mutationReport;
 }

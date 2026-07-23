@@ -376,4 +376,46 @@ describe('writeSpecTree', () => {
       rmSync(outputDir, { recursive: true, force: true });
     }
   });
+
+  it('never leaves a partial output directory behind when generation fails partway through', () => {
+    // Real, live-triggered finding: an MCP client that times out waiting for
+    // generate_spec (a real, multi-minute call for a real app) has no way to
+    // tell "generation is still running/failed" from "this app genuinely has
+    // 0 tests" — both look identical (a directory with CLAUDE.md/contracts
+    // but no tests/test-dependencies.json yet). A fresh agent facing that
+    // ambiguity treated it as the latter and wrote its own self-authored,
+    // self-graded test — exactly the failure mode this tool exists to
+    // prevent, caused by the tool's own output having no atomicity guarantee.
+    // Forces a genuine mid-write failure (not a mock): generateContracts
+    // reads route.file from disk unconditionally when startLine is set, so a
+    // route pointing at a nonexistent file throws a real ENOENT partway
+    // through writeSpecTree, after CLAUDE.md/settings/rules have already been
+    // written but before contracts/tests exist.
+    const repoDir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-writetree-repo-'));
+    const outputDir = join(tmpdir(), `rebuild-dossier-writetree-partial-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      const evidence: EvidenceBundle = {
+        repoPath: repoDir,
+        generatedAt: now,
+        packageJson: { name: 'sample-app', scripts: {}, dependencies: {}, devDependencies: {} },
+        buildConfig: [],
+        routes: [{ path: '/api/gone', method: 'GET', file: 'does-not-exist.ts', kind: 'api', startLine: 3 }],
+        existingTests: [],
+        signals: []
+      };
+
+      expect(() => writeSpecTree({ repoPath: repoDir, outputDir, evidence, cases: [] })).toThrow();
+
+      expect(existsSync(outputDir)).toBe(false);
+      // No temp-directory litter left behind in the parent either.
+      const parentEntries = readdirSync(dirname(outputDir));
+      const leftoverTempDirs = parentEntries.filter(
+        (e) => e.includes('writetree-partial') && !outputDir.endsWith(e)
+      );
+      expect(leftoverTempDirs).toEqual([]);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
 });
