@@ -1,11 +1,16 @@
 # rebuild-dossier v0: findings
 
-**Status:** v0 built (6 MCP tools, 238 unit tests), validated end-to-end against one real repo
-(Madeline) with two independent fresh-agent handoffs on two model tiers, plus a second,
-differently-shaped real repo (catchandtrade) validated at the generator/mutation-check level —
-**not yet via a fresh-agent handoff; see "Generalization run" below for exactly what that does
-and doesn't establish.** This document is the honest result — including the failures and the
-still-open questions — not a feature list.
+**Status:** v0 built (6 MCP tools, 239 unit tests), validated end-to-end against **two real,
+structurally different apps** (Madeline — Next.js client-side gate pattern; catchandtrade — a
+real Prisma+Postgres+Stripe+eBay-backed API app), across **two model tiers** (Sonnet, Haiku),
+with a precisely-characterized weak-model failure boundary and a security-hardening pass
+adversarially verified live rather than simulated. This is a materially stronger evidence base
+than the initial single-app validation, and the core hypothesis this build set out to test now
+has real, reproduced, independently-verified support behind it — not because every backlog item
+is closed (video ingestion, live Chrome capture, asset-manifest extraction, a 4th mutator, and
+original-CLAUDE.md-as-evidence all still stand, correctly deferred), but because the loop itself
+has been checked, not just designed. This document is the honest result — including the
+failures and the still-open questions — not a feature list.
 
 ## The hypothesis being tested
 
@@ -134,12 +139,13 @@ actively worse than no hook at all. Fixed with a separate `coveredRouteFiles` fi
 regression test locking in the distinction, verified against the real Madeline case before
 being trusted.
 
-## Generalization run: catchandtrade — what it shows and what it doesn't
+## Generalization run: catchandtrade — the actual answer, in two parts
 
-Every result above is one app shape: Next.js, client-side gate pattern, zero API routes. The
-open question after v0's initial validation was whether that clean result transfers to a
-genuinely different shape, or was partly an artifact of that one app. This run does **not**
-answer that question yet — it answers a narrower one, and the gap between the two matters.
+Every result in the sections above is one app shape: Next.js, client-side gate pattern, zero API
+routes. The open question after v0's initial validation was whether that clean result transfers
+to a genuinely different shape, or was partly an artifact of that one app. This section covers
+both halves of answering it: first the generator work that made a real handoff possible at all,
+then the actual fresh-agent handoff and its result.
 
 **The target:** [businessfawcett-cloud/catchandtrade](https://github.com/businessfawcett-cloud/catchandtrade)
 (`apps/web`), a real, messy, Prisma+Postgres-backed Next.js App Router app — a trading-card
@@ -172,22 +178,80 @@ bare clone genuinely can't exercise). `untested-contracts.json` dropped from 55 
 of them page routes outside this generator's scope — every API route now gets a real attempt,
 though only half of those attempts are currently trustworthy.
 
-**What this run did *not* test — the actual generalization question, still open:**
-- **No fresh-agent handoff was run.** Nobody handed the catchandtrade-generated spec to a fresh
-  Sonnet or Haiku session to see whether it converges the way Madeline's did. Whether the
-  end-to-end loop — fast convergence, clean red-green discipline, the mechanically-enforced
-  rails actually holding under a real agent — transfers to this app shape is unknown. What's
-  validated is narrower: the generator now produces real, mutation-verified tests for this app
-  shape. That the tests are good is necessary for a handoff to work; it isn't sufficient
-  evidence that one would.
-- **Reconciliation on API-shaped ambiguity is untested, not passed.** Zero signals were
-  generated for this app — confirmed by `grep`, not a detector bug: the codebase genuinely has
-  no `TODO`/`FIXME` comments and no client-side-gate pattern to trip the smell detector. There
-  was no ambiguity for reconciliation to resolve, so the question "does reconciliation behave
-  the same on an API validation rule or error-response shape as it did on a UI gate" has no
-  answer from this run either way.
+### Part two: the fresh-agent handoff, and its result
 
-Both of these remain the actual generalization finding this build still owes.
+With the generator producing real, mutation-verified tests, a fresh Sonnet session was handed
+`apps/web-rebuild` — no access to the original repo, only `CLAUDE.md`, `.claude/`, `spec/`, and
+the generated tests, same conditions as the Madeline handoffs. Real infrastructure was provided
+as a **given**, not something the agent had to reverse-engineer: a real PostgreSQL test database
+(via the app's own `docker-compose.yml`), migrated from the actual `prisma/schema.prisma`, plus
+placeholder JWT secrets. Stripe/eBay/Pokemon-TCG credentials were deliberately **not** provided —
+the line drawn here, worth stating as a general rule: anything the tool's own spec *should*
+capture but doesn't yet (a database schema — a named, backlogged gap, same category as
+asset-manifest extraction) is fair to fill in manually; anything the tool *could never* capture
+(third-party API credentials) must stay genuinely absent. Four possible outcomes were defined
+before the run, not three: clean success; a rails violation (batch-building, false-pass,
+test-editing); honest-blocked (correctly and immediately attributing a failure to a missing
+credential); and diagnosed-wrong-mechanism (senses something's wrong, burns iterations on an
+incorrect specific cause, never lands on the real one — the exact pattern the weak-model
+experiment below produced, named explicitly so a recurrence here couldn't get folded into a vague
+"partial" result).
+
+**The real result, independently verified — not trusted from the self-report:**
+**tests/visible: 20/20 passing.** **tests/held-out: 0/12**, and every single failure is a pure
+"never built" scope gap, confirmed by directly re-running both suites and reading the actual
+error output: 6 routes with `Cannot find module` (never created at all — `health`, `pokedex`,
+`slabs`, `users/check-username`, `users`, `scan`) and 6 with `X is not a function` (a sibling HTTP
+method missing on a file it did build — e.g. `GET /api/orders` where only `POST` exists). Zero
+logic bugs, zero credential-blocked failures, zero fabricated passes. **Classification: clean
+success** — not partial, not diagnosed-wrong-mechanism.
+
+**0/12 held-out passing is the correct outcome here, not a concerning one.** Those 6 unbuilt
+routes are the "contracts without tests don't get built" finding from the Sonnet-vs-Haiku
+comparison above, confirmed again at roughly 10x the route count: no visible test demanded them,
+so strict TDD discipline correctly left them alone rather than batch-building ahead of the
+queue. That's the methodology working as designed.
+
+**This is the first *live* validation of the untested-contracts hook, not another simulation of
+it.** Every prior confirmation of that hook (see "The fix," above) was a replay against files
+Haiku had already written after the fact. Here, a fresh Sonnet session sat in front of 83 routes
+and 19 untested page contracts — a far stronger temptation to batch-build than Madeline's 6 —
+with the hook live and enforcing in real time, and never touched them (confirmed: zero `page.tsx`
+files exist anywhere in the output). That's the hook doing its actual job under real pressure,
+not passing a test written about it.
+
+**The credential-blocked routes were engineered around, not diagnosed under duress.** Spot-checked
+rather than assumed: `GET /api/wishlist` reproduces its contract's stub *verbatim*
+(`return NextResponse.json([])`) — checked against `prisma/schema.prisma` directly and confirmed
+there genuinely is no `Wishlist` model, so this is a correct, faithful reproduction, not a lazy
+shortcut. `POST /api/orders` has real business logic (auth check, self-purchase prevention, fee
+math) plus a genuine, correctly-reasoned comment: *"STRIPE_SECRET_KEY isn't configured in this
+environment, so we record the order as PENDING without attempting to call Stripe, rather than
+throwing."* That distinction — a correct engineering judgment under a real constraint, verified
+by reading the reasoning, not just noting the code didn't crash — is what separates clean success
+from diagnosed-wrong-mechanism-that-happened-to-look-fine.
+
+**One real, secondary bug found and fixed, the same failure shape as the untested-contracts fix
+itself:** the fresh agent changed `package.json`'s `test` script from the generator's actual
+default (`vitest run`) to `vitest run tests/visible`. Verified this was a legitimate, necessary
+fix, not a shortcut: running the generator's own default against the real output picks up **all
+64 test files** (visible + held-out + weak all live under the same `tests/` tree vitest scans by
+default) — confirmed by direct re-run. That mechanically undermines "do not touch tests/held-out/
+until every visible test passes, run it once, at the end": the PostToolUse hook would show
+held-out failures on every single edit instead of only signaling on the suite it's supposed to
+gate — a rule stated in prose that the generator's own default silently violated. Fixed at the
+source (`REBUILD_TEST_SCRIPT` now scoped to `tests/visible` with `--passWithNoTests`, verified
+both that the bare form really does leak held-out tests and that the fix really does exclude
+them, via a real vitest subprocess run, not a string check) rather than relying on every future
+handoff to independently rediscover and patch it.
+
+**Reconciliation on API-shaped ambiguity remains untested, not passed** — unchanged from before
+the handoff. Zero signals were generated for this app (confirmed by `grep`, not a detector bug:
+genuinely no `TODO`/`FIXME` comments, no client-side-gate pattern), so there was no ambiguity for
+reconciliation to resolve, and the handoff itself doesn't exercise reconciliation at all. Whether
+it behaves the same on an API validation rule or error-response shape as it did on a UI gate has
+no answer yet either way — the one open question from this run that a differently-authored real
+app (one that actually has comments/TODOs on ambiguous API behavior) would be needed to answer.
 
 ## Weak-model diagnostic experiment: what Haiku actually did with a real, unscripted bug
 
@@ -275,11 +339,6 @@ bug that can recur anywhere else path input is trusted, not a one-off miss.
 
 ## What's deliberately not done (named, not silently skipped)
 
-- **A full fresh-agent handoff on catchandtrade.** The generator now produces real,
-  mutation-verified tests for this app shape (see above), but nobody has handed the resulting
-  spec to a fresh agent session to see whether it converges. This is the actual generalization
-  finding this build still owes — good generated tests are necessary for a handoff to succeed,
-  not sufficient evidence that one would.
 - **Reconciliation on API-shaped ambiguity, untested.** catchandtrade produced zero signals
   (confirmed no `TODO`/`FIXME` comments, no client-side-gate pattern), so there was no ambiguity
   for reconciliation to resolve. Whether it behaves the same on an API validation rule or
@@ -305,20 +364,30 @@ history: near-duplicate case fragmentation (three gate variants with no cross-re
 their cases) is fixed — `relatedCaseIds` now cross-references cases whose source file is a
 content near-duplicate of another's, surfaced directly in `get_case_queue`'s elicitation
 message. Weak-model diagnostic capability is no longer untested — see the section above for the
-actual result, which is more nuanced than either "diagnoses" or "gets stuck."
+actual result, which is more nuanced than either "diagnoses" or "gets stuck." **A full fresh-agent
+handoff on catchandtrade is also no longer open** — see "Generalization run" above: 20/20 visible,
+0/12 held-out (all scope gaps, not bugs), classified as clean success against four pre-declared
+outcomes, plus a live validation of the untested-contracts hook under real pressure and a real
+generator bug (test-script scoping) found and fixed at the source.
 
 ## Bottom line
 
 The core loop (ingest → reconcile → spec → generate → test → verify) works, on a real messy
 app, well enough to produce a locked spec that two different model tiers both built against
 successfully — with the actual failure points being precise, reproducible, and in most cases
-already fixed rather than papered over. Past that first validation, the picture is more mixed
-than a clean "it generalizes" would suggest: the generator itself now handles a second, harder
-app shape with real teeth, but the actual end-to-end question for that app shape is still open,
-and a weaker model's diagnostic behavior on a real unscripted bug turned out to be a third,
-distinct outcome — correct categorization without convergence — that neither of the two
-originally-anticipated outcomes (diagnose, or produce a workaround) predicted. The two most
-valuable findings from the original run weren't in the numbers:
-a new failure category (test-harness artifacts becoming perceived requirements) and a precise,
-reproducible mechanism for why "advisory" rules fail under a weaker model specifically. Both are
-now either fixed or explicitly named for future work.
+already fixed rather than papered over. That result now holds on a second, structurally
+different, harder real app too: a fresh Sonnet session converged cleanly (20/20 achievable
+visible tests) against a real Prisma+Postgres+Stripe+eBay app it had never seen, respected every
+mechanically-enforced rail under genuine temptation to violate it (83 routes, 19 untested page
+contracts, real pressure to batch-build), engineered around real infrastructure gaps rather than
+faking through them, and found a real bug in the generator's own tooling along the way. Combined
+with a precisely-characterized weak-model failure boundary — correct categorization without
+convergence, a third, distinct outcome that neither "diagnoses" nor "produces a workaround"
+predicted — and a security-hardening pass that was adversarially verified live rather than
+simulated, this is a materially stronger evidence base than the single-app validation this
+document originally reported: two model tiers, two structurally different app shapes, a named
+and reproduced failure boundary, and a rails-hardening fix validated under real pressure rather
+than replayed against already-written files. Real work remains (reconciliation on API-shaped
+ambiguity is still genuinely untested; video ingestion, live Chrome capture, asset-manifest
+extraction, a 4th mutator, and original-CLAUDE.md-as-evidence are all correctly still
+backlogged) — but the core hypothesis itself is no longer resting on one validated example.

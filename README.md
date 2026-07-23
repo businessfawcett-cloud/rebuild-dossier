@@ -296,10 +296,10 @@ tests, so its own correctness matters as much as any feature).
 v0 is scoped to prove the core loop, not to be feature-complete. Deliberately deferred, and
 tracked as real backlog rather than silently skipped:
 
-- A full fresh-agent handoff on a second, differently-shaped app (catchandtrade — Prisma/Postgres,
-  real API routes). The generator now produces real, mutation-verified tests for this shape;
-  whether a fresh agent actually converges against the resulting spec is still untested — the
-  actual generalization question, not yet answered.
+- Reconciliation on API-shaped ambiguity (a validation rule, an error-response shape) is still
+  genuinely untested — the one differently-shaped real app validated so far (catchandtrade)
+  happened to have zero comment/TODO signals to reconcile, so this specific question has no
+  answer yet either way. See [docs/v0-findings.md](docs/v0-findings.md).
 - Video/screen-recording ingestion and the video-LLM flagged-window review.
 - Original-CLAUDE.md / auto-memory as an evidence source.
 - Live Chrome MCP capture for auth-gated/multi-account flows a headless crawler can't reach.
