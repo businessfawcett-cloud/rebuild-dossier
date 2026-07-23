@@ -37,7 +37,17 @@ export interface WriteSpecTreeResult {
 // hook) is always safe to say separately because it delegates to that script
 // rather than being stored as its value — storing "npm test" as scripts.test
 // itself would make `npm test` recurse into itself.
-const REBUILD_TEST_SCRIPT = 'vitest run';
+//
+// Scoped to tests/visible/ specifically, not a bare `vitest run` — a real
+// fresh-agent handoff found that the bare form picks up tests/held-out/ and
+// tests/weak/ too (they all live under the same tests/ tree vitest scans by
+// default), which mechanically undermines "do not touch tests/held-out/
+// until every visible test passes, run it once at the end": the PostToolUse
+// hook would show held-out failures on every single edit instead of only
+// signaling on the suite it's actually supposed to gate. --passWithNoTests
+// keeps this from failing outright for an app whose test generators matched
+// nothing (an empty tests/visible/ is a real, valid state, not an error).
+const REBUILD_TEST_SCRIPT = 'vitest run tests/visible --passWithNoTests';
 const RUN_TESTS_COMMAND = 'npm test';
 
 function buildStackLines(evidence: EvidenceBundle): string[] {

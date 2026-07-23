@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { writeSpecTree } from '../../../src/spec/writeSpecTree.js';
 import { KICKOFF_PROMPT } from '../../../src/spec/generateKickoffPrompt.js';
 import type { EvidenceBundle } from '../../../src/ingest/evidenceSchema.js';
 import type { Case } from '../../../src/reconciliation/types.js';
+
+const ownProjectRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+const vitestEntry = join(ownProjectRoot, 'node_modules/vitest/vitest.mjs');
 
 const now = new Date(0).toISOString();
 
@@ -100,7 +105,7 @@ describe('writeSpecTree', () => {
       // (the generated tests are always vitest), never a copy of whatever
       // "npm test" string is used elsewhere — that would make `npm test`
       // recurse into itself.
-      expect(pkg.scripts.test).toBe('vitest run');
+      expect(pkg.scripts.test).toBe('vitest run tests/visible --passWithNoTests');
 
       const visibleFiles = readdirSync(join(outputDir, 'tests', 'visible'));
       const heldOutFiles = readdirSync(join(outputDir, 'tests', 'held-out'));
@@ -147,6 +152,91 @@ describe('writeSpecTree', () => {
       const pkg = JSON.parse(readFileSync(join(outputDir, 'package.json'), 'utf-8'));
       expect(pkg.dependencies).toEqual({ express: '4.19.2' });
       expect(readFileSync(join(outputDir, 'CLAUDE.md'), 'utf-8')).toContain('dependency versions already pinned in package.json are locked');
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  }, 60000);
+
+  it('the generated npm test script only ever runs tests/visible, never tests/held-out or tests/weak', () => {
+    // Caught by a real fresh-agent handoff: the generator's own default
+    // ("vitest run", no path) picks up every test under tests/ — visible,
+    // held-out, and weak all live in the same tree vitest scans by default.
+    // That mechanically undermines "run held-out once, at the end" — the
+    // PostToolUse hook would show held-out failures on every single edit.
+    // This runs the ACTUAL generated command against a real vitest process,
+    // not just a string-equality check on package.json.
+    const repoDir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-writetree-repo-'));
+    const outputDir = join(tmpdir(), `rebuild-dossier-writetree-out-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      writeFileSync(
+        join(repoDir, 'server.ts'),
+        [
+          "import express from 'express';",
+          'const app = express();',
+          "app.get('/api/a', (req, res) => res.status(200).json({ ok: true }));",
+          "app.get('/api/b', (req, res) => res.status(200).json({ ok: true }));",
+          "app.get('/api/c', (req, res) => res.status(200).json({ ok: true }));",
+          'export default app;'
+        ].join('\n')
+      );
+
+      const evidence: EvidenceBundle = {
+        repoPath: repoDir,
+        generatedAt: now,
+        packageJson: { name: 'sample-app', scripts: {}, dependencies: { express: '^4.19.0' }, devDependencies: {} },
+        buildConfig: [],
+        routes: [
+          { path: '/api/a', method: 'GET', file: 'server.ts', kind: 'api', startLine: 3 },
+          { path: '/api/b', method: 'GET', file: 'server.ts', kind: 'api', startLine: 4 },
+          { path: '/api/c', method: 'GET', file: 'server.ts', kind: 'api', startLine: 5 }
+        ],
+        existingTests: [],
+        signals: []
+      };
+
+      writeSpecTree({ repoPath: repoDir, outputDir, evidence, cases: [] });
+
+      const heldOutFiles = readdirSync(join(outputDir, 'tests', 'held-out'));
+      expect(heldOutFiles.length).toBeGreaterThan(0); // this fixture must actually exercise the split
+
+      // The generated tests import the app from the rebuild's own root — a
+      // real rebuild agent would have already written this by the time it
+      // runs `npm test`; simulate that here so the tests actually execute
+      // (whether they pass or fail isn't what this test is checking — only
+      // which files get selected to run at all).
+      writeFileSync(
+        join(outputDir, 'server.ts'),
+        [
+          "import express from 'express';",
+          'const app = express();',
+          "app.get('/api/a', (req, res) => res.status(200).json({ ok: true }));",
+          "app.get('/api/b', (req, res) => res.status(200).json({ ok: true }));",
+          "app.get('/api/c', (req, res) => res.status(200).json({ ok: true }));",
+          'export default app;'
+        ].join('\n')
+      );
+      symlinkSync(join(ownProjectRoot, 'node_modules'), join(outputDir, 'node_modules'), 'junction');
+      const pkg = JSON.parse(readFileSync(join(outputDir, 'package.json'), 'utf-8'));
+      const scriptArgs = pkg.scripts.test.split(' ').slice(1); // drop the leading "vitest"
+
+      let output: string;
+      try {
+        output = execFileSync('node', [vitestEntry, ...scriptArgs, '--root', outputDir, '--reporter=json', '--no-color'], {
+          encoding: 'utf-8',
+          timeout: 30000
+        });
+      } catch (e) {
+        // A real failure inside the run still exits non-zero; stdout still
+        // has the JSON report either way — only an outright crash has none.
+        output = (e as { stdout?: string }).stdout ?? '';
+      }
+      const parsed = JSON.parse(output.slice(output.indexOf('{')));
+      const testFilesRun: string[] = parsed.testResults.map((r: { name: string }) => r.name);
+
+      expect(testFilesRun.length).toBeGreaterThan(0);
+      expect(testFilesRun.some((f) => f.includes('tests/visible') || f.includes('tests\\visible'))).toBe(true);
+      expect(testFilesRun.some((f) => f.includes('tests/held-out') || f.includes('tests\\held-out'))).toBe(false);
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
       rmSync(outputDir, { recursive: true, force: true });
