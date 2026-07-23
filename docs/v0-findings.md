@@ -478,6 +478,32 @@ wrong directory would be. Mirrors `get_case_queue`'s existing interactive/script
 rather than introducing a new pattern; declining, an unsupported client, or an answer that isn't
 an exact match to a real candidate all fall back to the plain hint, unchanged.
 
+**Second live OpenCode run, precisely scoped — confirms the scripted fallback and the
+near-duplicate detector again, does NOT confirm the interactive elicitation feature.** The user
+re-ran `ingest_repo` for real against their own `cardvault` repo (a fork/near-duplicate of
+catchandtrade). Checked against the raw tool output, not the paraphrased summary:
+
+- `ingest_repo` pointed at the monorepo root returned `routes: 0` with
+  `monorepoHint.candidates: ["apps/web"]` exactly as designed — a genuine live confirmation of the
+  scripted fallback path through a third real MCP client (OpenCode), not just the automated
+  Client/Server test harness.
+- `interactive: true` was never passed on either call, so `elicitMonorepoChoice` never ran.
+  **The interactive elicitation feature itself remains unverified against any live client** —
+  it's only been confirmed via the automated MCP Client/Server harness test, not a real
+  human-in-the-loop prompt/response round trip. Worth running explicitly with `interactive: true`
+  before calling that feature live-verified, not just unit-tested.
+- The near-duplicate detector fired a 4th time, on a different shape than the earlier 4-file case
+  (2 files this time: `scripts/generate-api-routes.js` at the repo root and the same file inside a
+  nested `catchandtrade-master/` copy). Checked bidirectionally in the raw `get_case_queue` output:
+  each case's `relatedCaseIds` names the other. Running total: Madeline's original 3-gate-variant
+  case, a direct unit-level check against Madeline data, the earlier 4-file OpenCode case, and now
+  this 2-file case — 4-for-4 across three independently-sourced repos and two different
+  duplicate-count shapes.
+- The repo's case count (2 open cases here, vs. 4 in the earlier OpenCode session) is not a
+  regression — checked directly against the saved evidence: this particular clone genuinely only
+  contains one nested duplicate directory (`catchandtrade-master/`), not several sibling
+  directories. Real repo-state drift between sessions, not a tool discrepancy.
+
 ## Bottom line
 
 The core loop (ingest → reconcile → spec → generate → test → verify) works, on a real messy
