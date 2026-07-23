@@ -109,6 +109,13 @@ uploaded anywhere. You'll get back a summary:
 `openCases` here already reflects reconciliation — comment/TODO signals and structural smells
 that didn't auto-resolve become case-queue entries automatically.
 
+If `routes` comes back `0`, check for a `monorepoHint` field before assuming the app has none —
+`ingest_repo` needs to be pointed at the actual app directory, not a monorepo's root wrapper
+(a `package.json` with `apps/*`/`packages/*` next to it, common with Turborepo/Nx/workspace
+layouts, including ones that never actually declare a `workspaces` field). The hint lists real
+candidate directories found under `apps/`/`packages/` so you don't have to hunt for the real app
+yourself — re-run `ingest_repo` pointed at one of those instead.
+
 ### 2. (Optional) Crawl the live site
 
 ```

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { rmSync } from 'node:fs';
 import { ingestRepoHandler } from '../../../src/tools/ingestRepo.js';
@@ -48,5 +49,36 @@ describe('ingest_repo tool', () => {
       if (original === undefined) delete process.env.REBUILD_DOSSIER_ALLOWED_PATHS;
       else process.env.REBUILD_DOSSIER_ALLOWED_PATHS = original;
     }
+  });
+
+  it('surfaces a monorepo hint when 0 routes are found at a workspace-root-shaped path', async () => {
+    // Real, observed shape: pointing ingest_repo at a monorepo root (a thin
+    // wrapper package.json with no routes of its own, no "workspaces" field,
+    // no pnpm-workspace.yaml, only apps/*) silently returned 0 routes with
+    // no indication the real app was one level down — someone using the
+    // tool for real burned time debugging "why 0 routes" before finding it.
+    const dir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-ingest-monorepo-'));
+    try {
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'temp', private: true }));
+      mkdirSync(join(dir, 'apps', 'web'), { recursive: true });
+      writeFileSync(join(dir, 'apps', 'web', 'package.json'), JSON.stringify({ name: '@app/web', dependencies: { next: '^14.0.0' } }));
+
+      const result = await ingestRepoHandler({ path: dir });
+      const summary = JSON.parse(result.content[0]!.text);
+
+      expect(summary.routes).toBe(0);
+      expect(summary.monorepoHint).toBeDefined();
+      expect(summary.monorepoHint.candidates).toEqual(['apps/web']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not surface a monorepo hint when routes are actually found', async () => {
+    const result = await ingestRepoHandler({ path: sampleRepoPath });
+    const summary = JSON.parse(result.content[0]!.text);
+    expect(summary.routes).toBeGreaterThan(0);
+    expect(summary.monorepoHint).toBeUndefined();
+    rmSync(join(sampleRepoPath, '.dossier'), { recursive: true, force: true });
   });
 });
