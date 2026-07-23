@@ -504,6 +504,49 @@ catchandtrade). Checked against the raw tool output, not the paraphrased summary
   contains one nested duplicate directory (`catchandtrade-master/`), not several sibling
   directories. Real repo-state drift between sessions, not a tool discrepancy.
 
+**Third live OpenCode run — a real fresh-agent handoff against the generated `cardvault-rebuild`
+workspace found a genuine, previously-unknown bug: `generate_spec` has no equivalent of
+`ingest_repo`'s own monorepo guard.** The user pasted the standard kickoff prompt into a fresh
+OpenCode session pointed at `cardvault-rebuild`. It reported: 0 tests, 0 contracts, no
+`spec/contracts/` directory at all, and concluded "the rebuild spec is satisfied as-is... there
+was no code to rebuild" — a conclusion that, taken at face value, would have looked like a clean
+success (0 failures) while actually meaning nothing was ever generated. Checked directly rather
+than accepted:
+
+- The generated `CLAUDE.md` read `# Project: temp (rebuild)`. `temp` is the `name` field in the
+  monorepo **root**'s own `package.json` (confirmed: `apps/web/package.json`'s name is
+  `@catchandtrade/web`, and its own separately-saved evidence has `routes: 83`; the root's
+  separately-saved evidence has `routes: 0`).
+- Root cause: `ingest_repo` had correctly been run twice earlier in the session (root → 0 routes
+  + `monorepoHint`, then re-pointed at `apps/web` → 83 routes, exactly as designed), but
+  `generate_spec` was then called against the monorepo **root** path, not `apps/web`. Read
+  `src/tools/generateSpec.ts` directly: it checks for open cases and missing evidence, but had
+  **zero check for `evidence.routes.length === 0`** — it silently wrote a syntactically valid but
+  completely empty spec tree instead of refusing, one pipeline stage past the exact shape
+  `ingest_repo`'s `monorepoHint` exists to catch.
+
+**Fixed the same session this was found, following this project's own "surface ambiguity, don't
+silently resolve it" principle one stage further downstream:** `generate_spec` now checks
+`evidence.routes.length === 0` and, if the repo path also looks monorepo-shaped (via the same
+`findCandidateAppDirs` `ingest_repo` already uses), refuses with `isError: true` and a message
+naming the real candidate directories, instead of proceeding. A genuinely route-less, non-monorepo
+repo (e.g. a pure component library) is unaffected — the guard only fires when both conditions
+hold, mirroring `ingest_repo`'s own precise trigger condition rather than blocking on 0 routes
+alone. TDD: 2 new tests written first (confirmed red against the unfixed code — the monorepo-root
+case failed with `isError: undefined`; the non-monorepo 0-route case already passed, confirming
+the guard doesn't over-fire), then implemented. Verified live against the exact real
+`D:\Card Idea\cardvault` root that triggered this: now returns
+`"Cannot generate spec: 0 routes were ingested for D:/Card Idea/cardvault — this looks like a
+monorepo root, not the app itself. Re-run ingest_repo and generate_spec pointed at one of these
+candidates instead: apps/web"` instead of silently succeeding. 262 tests passing, typecheck clean.
+
+This is the third real bug this exact OpenCode/monorepo thread has surfaced (after the
+`.gitignore` non-issue and the confirmed-working near-duplicate detector) — worth naming plainly
+as a distinct finding, not folded into either of the other two: **a tool having a correct guard at
+one pipeline stage doesn't mean every downstream stage inherits it.** The fix pattern (redirect to
+real candidates rather than silently proceed) is proven at this point — this is its second
+independent application, not a new design decision.
+
 ## Bottom line
 
 The core loop (ingest → reconcile → spec → generate → test → verify) works, on a real messy

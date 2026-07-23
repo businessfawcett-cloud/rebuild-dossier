@@ -105,6 +105,52 @@ describe('generate_spec tool', () => {
     }
   }, 60000);
 
+  it('refuses to generate a spec when 0 routes were ingested and the repo looks like a monorepo root', async () => {
+    // Real bug, found via a live fresh-agent handoff (OpenCode against a real
+    // repo): ingest_repo was correctly re-pointed at apps/web (83 routes) after
+    // the monorepo hint fired, but generate_spec was then called against the
+    // monorepo ROOT path, whose own (separate) evidence.json still had 0
+    // routes from the original ingest. generate_spec had no equivalent guard
+    // to ingest_repo's monorepoHint, so it silently produced a syntactically
+    // valid but completely empty spec (0 contracts, 0 tests) instead of
+    // refusing — a fresh agent then reported "nothing to rebuild" as if that
+    // were a real, correct conclusion about the app.
+    const dir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-genspec-monorepo-'));
+    const outputDir = `${dir}-rebuild`;
+    try {
+      mkdirSync(join(dir, 'apps', 'web'), { recursive: true });
+      writeFileSync(join(dir, 'apps', 'web', 'package.json'), JSON.stringify({ name: '@app/web' }));
+      atomicWriteFile(evidencePath(dir), JSON.stringify(minimalEvidence({ repoPath: dir })));
+      saveCases(dir, []);
+
+      const result = await generateSpecHandler({ repoPath: dir });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain('apps/web');
+      expect(existsSync(outputDir)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not refuse for a genuinely route-less repo that is not monorepo-shaped', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-genspec-noroutes-'));
+    const outputDir = `${dir}-rebuild`;
+    try {
+      atomicWriteFile(evidencePath(dir), JSON.stringify(minimalEvidence({ repoPath: dir })));
+      saveCases(dir, []);
+
+      const result = await generateSpecHandler({ repoPath: dir });
+
+      expect(result.isError).toBeUndefined();
+      expect(existsSync(join(outputDir, 'CLAUDE.md'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
   it('does not warn when the target repo has its own node_modules', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'rebuild-dossier-genspec-'));
     const outputDir = `${dir}-rebuild`;

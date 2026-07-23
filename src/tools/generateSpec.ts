@@ -5,6 +5,7 @@ import { loadCases } from '../state/caseStore.js';
 import { loadEvidenceBundle } from '../state/evidenceStore.js';
 import { writeSpecTree } from '../spec/writeSpecTree.js';
 import { enforcePathAllowlist } from '../security/pathAllowlist.js';
+import { findCandidateAppDirs } from '../ingest/detectMonorepoHint.js';
 
 export const generateSpecInputSchema = z.object({
   repoPath: z.string().describe('Repo path that was ingested; output is written to a sibling <repoPath>-rebuild/ directory')
@@ -47,6 +48,27 @@ export async function generateSpecHandler(args: z.infer<typeof generateSpecInput
       content: [{ type: 'text' as const, text: `No evidence found for ${args.repoPath} — run ingest_repo first.` }],
       isError: true
     };
+  }
+
+  // Real bug, found via a live fresh-agent handoff: ingest_repo's own
+  // monorepoHint correctly steers a user to re-ingest the actual app
+  // directory, but generate_spec had no equivalent guard — if it's then
+  // called against the monorepo ROOT path (whose own, separate evidence.json
+  // still has 0 routes from the original ingest), it silently produced a
+  // valid-looking but completely empty spec instead of refusing.
+  if (evidence.routes.length === 0) {
+    const candidates = findCandidateAppDirs(args.repoPath);
+    if (candidates.length > 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Cannot generate spec: 0 routes were ingested for ${args.repoPath} — this looks like a monorepo root, not the app itself. Re-run ingest_repo and generate_spec pointed at one of these candidates instead: ${candidates.join(', ')}`
+          }
+        ],
+        isError: true
+      };
+    }
   }
 
   const outputDir = siblingRebuildDir(args.repoPath);
