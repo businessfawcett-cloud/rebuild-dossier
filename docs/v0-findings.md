@@ -1,6 +1,6 @@
 # rebuild-dossier v0: findings
 
-**Status:** v0 built (6 MCP tools, 241 unit tests), validated end-to-end against **two real,
+**Status:** v0 built (6 MCP tools, 255 unit tests), validated end-to-end against **two real,
 structurally different apps** (Madeline — Next.js client-side gate pattern; catchandtrade — a
 real Prisma+Postgres+Stripe+eBay-backed API app), across **two model tiers** (Sonnet, Haiku),
 with a precisely-characterized weak-model failure boundary and a security-hardening pass
@@ -377,16 +377,6 @@ backlogged and revisited opportunistically rather than manufactured on demand.
 
 ## What's deliberately not done (named, not silently skipped)
 
-- **`.gitignore` awareness in `listSourceFiles.ts` — elevated priority, not just "still known."**
-  Triggered independently **twice** in one session, via two genuinely different mechanisms: (1)
-  an OpenCode user's real monorepo had duplicate-case directories that turned out to be
-  git-tracked, not ignored — so this specific instance wasn't the cause there, but exposed that
-  the tool has no way to tell the difference; (2) directly reproducing that investigation,
-  renaming a real `node_modules` to `node_modules.bak` *in place* (to test a different
-  hypothesis) caused `ingest_repo` to scan straight into it — the hardcoded ignore list matches
-  the literal string `node_modules`, nothing else — producing 409 garbage cases from third-party
-  package comments. Two independent paths into the same gap in one session is stronger evidence
-  for prioritizing the fix than a single observation would be, not "already known, nothing new."
 - **Reconciliation on API-shaped ambiguity, untested.** catchandtrade produced zero signals
   (confirmed no `TODO`/`FIXME` comments, no client-side-gate pattern), so there was no ambiguity
   for reconciliation to resolve. Whether it behaves the same on an API validation rule or
@@ -422,7 +412,17 @@ actual result, which is more nuanced than either "diagnoses" or "gets stuck." **
 handoff on catchandtrade is also no longer open** — see "Generalization run" above: 20/20 visible,
 0/12 held-out (all scope gaps, not bugs), classified as clean success against four pre-declared
 outcomes, plus a live validation of the untested-contracts hook under real pressure and a real
-generator bug (test-script scoping) found and fixed at the source.
+generator bug (test-script scoping) found and fixed at the source. **`.gitignore` awareness in
+`listSourceFiles.ts` is also fixed** — this gap was triggered independently twice in one session
+via two genuinely different mechanisms (an OpenCode user's real monorepo, and a `node_modules`
+rename made while investigating a separate question), which is stronger evidence for prioritizing
+it than either incident alone. Added the `ignore` package (small, standard, used internally by
+ESLint — a real .gitignore implementation is fiddly enough to get right that hand-rolling it
+wasn't worth the risk of a subtly-wrong version). Scoped to the repo-root `.gitignore` only, not
+nested per-directory ones or a monorepo's actual git root. Worth stating honestly: neither
+triggering incident would actually have been prevented by this fix — the `node_modules` rename
+was never itself gitignored, and the OpenCode duplicates were genuinely git-tracked. This closes
+the general latent gap those incidents exposed, not either specific incident.
 
 ## Bottom line
 
