@@ -207,6 +207,13 @@ indistinguishable from a 100%-effective one, since it "fails" identically whethe
 code under test was mutated. Neither is an error — it's the tool telling you honestly that a
 specific test didn't earn its place in `tests/visible/`, and why.
 
+If every generated test lands in `tests/weak/` with `mutationsChecked: 0`, check for a `warning`
+field before assuming something's structurally wrong — the far more common cause is that the
+target repo hasn't had `npm install` run in it, so the mutation-check scratch copy has none of
+the target's own real dependencies (`next`, `@prisma/client`, whatever the app actually needs)
+and every generated test fails to even import them. `generate_spec` checks for this directly and
+says so, rather than leaving you to debug a confusing all-unrunnable result.
+
 ### 6. Hand it off
 
 ```bash
